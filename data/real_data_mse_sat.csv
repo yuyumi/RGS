@@ -1,0 +1,351 @@
+Dataset,Method,MSE
+Satellite Image,Lasso,1.4727012826238113
+Satellite Image,Lasso,1.5050873670227432
+Satellite Image,Lasso,1.4796150119681781
+Satellite Image,Lasso,1.4915678255170968
+Satellite Image,Lasso,1.466035390360258
+Satellite Image,Lasso,1.5177203243355717
+Satellite Image,Lasso,1.497483953253415
+Satellite Image,Lasso,1.5041798807434106
+Satellite Image,Lasso,1.4734244759902348
+Satellite Image,Lasso,1.5063662239715752
+Satellite Image,Lasso,1.4945538697592942
+Satellite Image,Lasso,1.5219530858191395
+Satellite Image,Lasso,1.503239910038232
+Satellite Image,Lasso,1.510308136025957
+Satellite Image,Lasso,1.46861297859486
+Satellite Image,Lasso,1.4905260383123975
+Satellite Image,Lasso,1.478110529054817
+Satellite Image,Lasso,1.51922371137762
+Satellite Image,Lasso,1.5137429418324042
+Satellite Image,Lasso,1.5359499350090886
+Satellite Image,Lasso,1.4915865603551934
+Satellite Image,Lasso,1.5097827890974418
+Satellite Image,Lasso,1.4909432352238088
+Satellite Image,Lasso,1.500238639891378
+Satellite Image,Lasso,1.5025682473911794
+Satellite Image,Lasso,1.4794782852978299
+Satellite Image,Lasso,1.5254701968803976
+Satellite Image,Lasso,1.5069756628139512
+Satellite Image,Lasso,1.4988195903962211
+Satellite Image,Lasso,1.4815229655729165
+Satellite Image,Lasso,1.4808931594114494
+Satellite Image,Lasso,1.5108672185903942
+Satellite Image,Lasso,1.4974883215677612
+Satellite Image,Lasso,1.5352820241110305
+Satellite Image,Lasso,1.5107596488655486
+Satellite Image,Lasso,1.5249288165175185
+Satellite Image,Lasso,1.4890945675143141
+Satellite Image,Lasso,1.523177901644872
+Satellite Image,Lasso,1.4976092458680288
+Satellite Image,Lasso,1.4829630754498027
+Satellite Image,Lasso,1.5059549195072304
+Satellite Image,Lasso,1.4950711664923113
+Satellite Image,Lasso,1.5111245355850211
+Satellite Image,Lasso,1.4868776034097795
+Satellite Image,Lasso,1.514562691372308
+Satellite Image,Lasso,1.4556270621821097
+Satellite Image,Lasso,1.4915185031753109
+Satellite Image,Lasso,1.4887203869953525
+Satellite Image,Lasso,1.540769899509434
+Satellite Image,Lasso,1.4983677863181435
+Satellite Image,Elastic Net,1.471365385040203
+Satellite Image,Elastic Net,1.5050873670227432
+Satellite Image,Elastic Net,1.4805082996522976
+Satellite Image,Elastic Net,1.4911602602024463
+Satellite Image,Elastic Net,1.4661287939816996
+Satellite Image,Elastic Net,1.5261330006585998
+Satellite Image,Elastic Net,1.4939446184628884
+Satellite Image,Elastic Net,1.5025491962701891
+Satellite Image,Elastic Net,1.474938264615438
+Satellite Image,Elastic Net,1.5029468855499843
+Satellite Image,Elastic Net,1.492459189929914
+Satellite Image,Elastic Net,1.5217353473066082
+Satellite Image,Elastic Net,1.5153253638862847
+Satellite Image,Elastic Net,1.5057472206333786
+Satellite Image,Elastic Net,1.4723589149677607
+Satellite Image,Elastic Net,1.4897947635915845
+Satellite Image,Elastic Net,1.475396447830706
+Satellite Image,Elastic Net,1.5161212769032457
+Satellite Image,Elastic Net,1.512914394045627
+Satellite Image,Elastic Net,1.5309969249425828
+Satellite Image,Elastic Net,1.4859053912200864
+Satellite Image,Elastic Net,1.5092280625764847
+Satellite Image,Elastic Net,1.489092950747691
+Satellite Image,Elastic Net,1.5011483931618093
+Satellite Image,Elastic Net,1.503080773257983
+Satellite Image,Elastic Net,1.4799515644843908
+Satellite Image,Elastic Net,1.5257593978033668
+Satellite Image,Elastic Net,1.505779030184086
+Satellite Image,Elastic Net,1.4988195903962211
+Satellite Image,Elastic Net,1.4793409575805547
+Satellite Image,Elastic Net,1.4810472147036027
+Satellite Image,Elastic Net,1.5114355451345383
+Satellite Image,Elastic Net,1.5009332366580217
+Satellite Image,Elastic Net,1.5339107656886442
+Satellite Image,Elastic Net,1.510206877125847
+Satellite Image,Elastic Net,1.5097982591374357
+Satellite Image,Elastic Net,1.4874421711707826
+Satellite Image,Elastic Net,1.5151125053845647
+Satellite Image,Elastic Net,1.495995145969243
+Satellite Image,Elastic Net,1.4762231594091342
+Satellite Image,Elastic Net,1.5059549195072304
+Satellite Image,Elastic Net,1.4889338038646855
+Satellite Image,Elastic Net,1.5089858079782519
+Satellite Image,Elastic Net,1.4941637266959897
+Satellite Image,Elastic Net,1.513797341997516
+Satellite Image,Elastic Net,1.4531399383891772
+Satellite Image,Elastic Net,1.4880337912749064
+Satellite Image,Elastic Net,1.485645778189971
+Satellite Image,Elastic Net,1.5371350237988912
+Satellite Image,Elastic Net,1.497162837559766
+Satellite Image,Ridge,1.47962429013218
+Satellite Image,Ridge,1.5144105060202802
+Satellite Image,Ridge,1.4805259315419117
+Satellite Image,Ridge,1.489063859584103
+Satellite Image,Ridge,1.4739070972645805
+Satellite Image,Ridge,1.5267468015012011
+Satellite Image,Ridge,1.4995830726427384
+Satellite Image,Ridge,1.5024745201093712
+Satellite Image,Ridge,1.4864354381739329
+Satellite Image,Ridge,1.5065928461024396
+Satellite Image,Ridge,1.4935190108677652
+Satellite Image,Ridge,1.5254200621093816
+Satellite Image,Ridge,1.491851173671721
+Satellite Image,Ridge,1.5085560976405086
+Satellite Image,Ridge,1.4792387655636534
+Satellite Image,Ridge,1.49265745492786
+Satellite Image,Ridge,1.479265348652189
+Satellite Image,Ridge,1.5185797193362647
+Satellite Image,Ridge,1.5204368744304706
+Satellite Image,Ridge,1.526937519397483
+Satellite Image,Ridge,1.48893920028543
+Satellite Image,Ridge,1.5131657801847291
+Satellite Image,Ridge,1.4901751297526267
+Satellite Image,Ridge,1.5037591092810607
+Satellite Image,Ridge,1.5025609898128895
+Satellite Image,Ridge,1.4786524439781656
+Satellite Image,Ridge,1.5264071834447934
+Satellite Image,Ridge,1.504275810910598
+Satellite Image,Ridge,1.497131788376824
+Satellite Image,Ridge,1.4811655151763077
+Satellite Image,Ridge,1.482582457445827
+Satellite Image,Ridge,1.4936356315731092
+Satellite Image,Ridge,1.4989484046292523
+Satellite Image,Ridge,1.54593608954603
+Satellite Image,Ridge,1.5197248719436467
+Satellite Image,Ridge,1.5116755166942817
+Satellite Image,Ridge,1.4846936760673681
+Satellite Image,Ridge,1.5170178221515516
+Satellite Image,Ridge,1.4958699961499664
+Satellite Image,Ridge,1.4861793037529136
+Satellite Image,Ridge,1.503139733844726
+Satellite Image,Ridge,1.4932466869383443
+Satellite Image,Ridge,1.5123753544406977
+Satellite Image,Ridge,1.4903474170564988
+Satellite Image,Ridge,1.517428521553072
+Satellite Image,Ridge,1.4542232702284363
+Satellite Image,Ridge,1.4924555913863409
+Satellite Image,Ridge,1.48646485571132
+Satellite Image,Ridge,1.541246332137649
+Satellite Image,Ridge,1.4942497431447805
+Satellite Image,RFS Unopt,1.4791125969579726
+Satellite Image,RFS Unopt,1.5495982946560674
+Satellite Image,RFS Unopt,1.4964458267724172
+Satellite Image,RFS Unopt,1.4926910058532992
+Satellite Image,RFS Unopt,1.4955418729715007
+Satellite Image,RFS Unopt,1.5526387320827586
+Satellite Image,RFS Unopt,1.5219954294031288
+Satellite Image,RFS Unopt,1.4982550895368223
+Satellite Image,RFS Unopt,1.4938910312018858
+Satellite Image,RFS Unopt,1.5293071317348863
+Satellite Image,RFS Unopt,1.5032685710196203
+Satellite Image,RFS Unopt,1.5275971929430492
+Satellite Image,RFS Unopt,1.493775758792252
+Satellite Image,RFS Unopt,1.5326611498705531
+Satellite Image,RFS Unopt,1.4970192424679056
+Satellite Image,RFS Unopt,1.508106545709387
+Satellite Image,RFS Unopt,1.4985287141091486
+Satellite Image,RFS Unopt,1.5335687774953168
+Satellite Image,RFS Unopt,1.5279255112441406
+Satellite Image,RFS Unopt,1.5307619358060962
+Satellite Image,RFS Unopt,1.5085741860850288
+Satellite Image,RFS Unopt,1.5181434770319182
+Satellite Image,RFS Unopt,1.4954027832505306
+Satellite Image,RFS Unopt,1.516306189580199
+Satellite Image,RFS Unopt,1.5283044280173477
+Satellite Image,RFS Unopt,1.4957726392573623
+Satellite Image,RFS Unopt,1.539654080581765
+Satellite Image,RFS Unopt,1.5279206438061843
+Satellite Image,RFS Unopt,1.511982564302964
+Satellite Image,RFS Unopt,1.4939423981121327
+Satellite Image,RFS Unopt,1.4927429928034728
+Satellite Image,RFS Unopt,1.5266317474286752
+Satellite Image,RFS Unopt,1.5231292873436504
+Satellite Image,RFS Unopt,1.5583227125474133
+Satellite Image,RFS Unopt,1.5174010517245686
+Satellite Image,RFS Unopt,1.5313235357889725
+Satellite Image,RFS Unopt,1.5031664567614953
+Satellite Image,RFS Unopt,1.528199214019068
+Satellite Image,RFS Unopt,1.5212334794983067
+Satellite Image,RFS Unopt,1.5079063593501512
+Satellite Image,RFS Unopt,1.5174041950215595
+Satellite Image,RFS Unopt,1.4973106498741013
+Satellite Image,RFS Unopt,1.5405171160985545
+Satellite Image,RFS Unopt,1.5106613975035927
+Satellite Image,RFS Unopt,1.511985701243658
+Satellite Image,RFS Unopt,1.4705611824158813
+Satellite Image,RFS Unopt,1.504822819966089
+Satellite Image,RFS Unopt,1.5125453385612384
+Satellite Image,RFS Unopt,1.5529860362741108
+Satellite Image,RFS Unopt,1.516163119308368
+Satellite Image,RFS Opt,1.484523045854681
+Satellite Image,RFS Opt,1.5803721010212737
+Satellite Image,RFS Opt,1.4902511070665203
+Satellite Image,RFS Opt,1.5016214977388318
+Satellite Image,RFS Opt,1.497553145546808
+Satellite Image,RFS Opt,1.5458290111057873
+Satellite Image,RFS Opt,1.4972195922639349
+Satellite Image,RFS Opt,1.5036024918314863
+Satellite Image,RFS Opt,1.4966542599100625
+Satellite Image,RFS Opt,1.5084679095058122
+Satellite Image,RFS Opt,1.5038226734137805
+Satellite Image,RFS Opt,1.5245165689653504
+Satellite Image,RFS Opt,1.5509423494379144
+Satellite Image,RFS Opt,1.5308276012412103
+Satellite Image,RFS Opt,1.4976035203424798
+Satellite Image,RFS Opt,1.5060228774635536
+Satellite Image,RFS Opt,1.4940323883430207
+Satellite Image,RFS Opt,1.5418091745116875
+Satellite Image,RFS Opt,1.5277383203500052
+Satellite Image,RFS Opt,1.5311528653977309
+Satellite Image,RFS Opt,1.5015816618755902
+Satellite Image,RFS Opt,1.5203556371584497
+Satellite Image,RFS Opt,1.498618557475204
+Satellite Image,RFS Opt,1.5125455059476471
+Satellite Image,RFS Opt,1.5186657321227097
+Satellite Image,RFS Opt,1.4966438743942803
+Satellite Image,RFS Opt,1.5473006953608335
+Satellite Image,RFS Opt,1.511953591176093
+Satellite Image,RFS Opt,1.5398707855362779
+Satellite Image,RFS Opt,1.488817507780258
+Satellite Image,RFS Opt,1.48729498787358
+Satellite Image,RFS Opt,1.5521253055634832
+Satellite Image,RFS Opt,1.5244297979367796
+Satellite Image,RFS Opt,1.5481520171463008
+Satellite Image,RFS Opt,1.5207863071697827
+Satellite Image,RFS Opt,1.526661603478361
+Satellite Image,RFS Opt,1.5128278177613965
+Satellite Image,RFS Opt,1.5135032458447897
+Satellite Image,RFS Opt,1.5485633459164796
+Satellite Image,RFS Opt,1.4858544280021506
+Satellite Image,RFS Opt,1.5254379029615204
+Satellite Image,RFS Opt,1.492195732710334
+Satellite Image,RFS Opt,1.528465795429663
+Satellite Image,RFS Opt,1.4895767337586359
+Satellite Image,RFS Opt,1.5257797932043695
+Satellite Image,RFS Opt,1.47708963755759
+Satellite Image,RFS Opt,1.5013403419627973
+Satellite Image,RFS Opt,1.4947290438167924
+Satellite Image,RFS Opt,1.5566367849093987
+Satellite Image,RFS Opt,1.5257986656515365
+Satellite Image,FS,1.4798606701123411
+Satellite Image,FS,1.5214139172955112
+Satellite Image,FS,1.496445826772417
+Satellite Image,FS,1.49409845703959
+Satellite Image,FS,1.4951063086284406
+Satellite Image,FS,1.5451096339826962
+Satellite Image,FS,1.5145111741482564
+Satellite Image,FS,1.4965310054732566
+Satellite Image,FS,1.5099947076611533
+Satellite Image,FS,1.5168285136147894
+Satellite Image,FS,1.5021001498018405
+Satellite Image,FS,1.5405992304889986
+Satellite Image,FS,1.5293302649600362
+Satellite Image,FS,1.5400753461627148
+Satellite Image,FS,1.4976400038984345
+Satellite Image,FS,1.527996722780596
+Satellite Image,FS,1.4787590578734051
+Satellite Image,FS,1.5338586952707352
+Satellite Image,FS,1.5142338459518767
+Satellite Image,FS,1.5383924835816416
+Satellite Image,FS,1.5068108875825312
+Satellite Image,FS,1.5320367643226496
+Satellite Image,FS,1.49960638300813
+Satellite Image,FS,1.5179163911224562
+Satellite Image,FS,1.5168475606921128
+Satellite Image,FS,1.4990918684248145
+Satellite Image,FS,1.5425357076689297
+Satellite Image,FS,1.5390991478705338
+Satellite Image,FS,1.516490502489909
+Satellite Image,FS,1.4912369523948126
+Satellite Image,FS,1.4896414522224792
+Satellite Image,FS,1.5250504715541129
+Satellite Image,FS,1.5281562153291866
+Satellite Image,FS,1.5500111543633592
+Satellite Image,FS,1.5416164826296779
+Satellite Image,FS,1.5327160024201505
+Satellite Image,FS,1.5049272984682716
+Satellite Image,FS,1.5248251122067615
+Satellite Image,FS,1.5260414612620068
+Satellite Image,FS,1.4846986607082742
+Satellite Image,FS,1.5174041950215598
+Satellite Image,FS,1.49380297450246
+Satellite Image,FS,1.5405171160985542
+Satellite Image,FS,1.5106613975035927
+Satellite Image,FS,1.5393719091425535
+Satellite Image,FS,1.464417002339988
+Satellite Image,FS,1.5051389697146325
+Satellite Image,FS,1.507375679148603
+Satellite Image,FS,1.549134914542669
+Satellite Image,FS,1.4977063671434594
+Satellite Image,OLS,1.4984606552945425
+Satellite Image,OLS,1.561958556806683
+Satellite Image,OLS,1.4964458267724154
+Satellite Image,OLS,1.5020418225916774
+Satellite Image,OLS,1.4956289978799304
+Satellite Image,OLS,1.5593025044672735
+Satellite Image,OLS,1.5243853297695313
+Satellite Image,OLS,1.52782905081211
+Satellite Image,OLS,1.5100846222739646
+Satellite Image,OLS,1.535189977482226
+Satellite Image,OLS,1.5104125105297803
+Satellite Image,OLS,1.5530614511305323
+Satellite Image,OLS,1.529330264960036
+Satellite Image,OLS,1.5293007772835425
+Satellite Image,OLS,1.5098489941850821
+Satellite Image,OLS,1.5264508007637103
+Satellite Image,OLS,1.5103578261554158
+Satellite Image,OLS,1.5403959168912194
+Satellite Image,OLS,1.54873232146802
+Satellite Image,OLS,1.5395588585530762
+Satellite Image,OLS,1.5053364446455448
+Satellite Image,OLS,1.5393795323974884
+Satellite Image,OLS,1.4983188386221646
+Satellite Image,OLS,1.5198751574813458
+Satellite Image,OLS,1.5310281773253318
+Satellite Image,OLS,1.5159616730003085
+Satellite Image,OLS,1.5429173578081965
+Satellite Image,OLS,1.5348047705354033
+Satellite Image,OLS,1.5194428472381654
+Satellite Image,OLS,1.4939423981121327
+Satellite Image,OLS,1.502658714218497
+Satellite Image,OLS,1.539053334128663
+Satellite Image,OLS,1.5390378984221973
+Satellite Image,OLS,1.5770371118685291
+Satellite Image,OLS,1.5502463369960844
+Satellite Image,OLS,1.5186116436968176
+Satellite Image,OLS,1.4996829115047265
+Satellite Image,OLS,1.5451364345010399
+Satellite Image,OLS,1.5090154188489993
+Satellite Image,OLS,1.521737743640773
+Satellite Image,OLS,1.5174041950215598
+Satellite Image,OLS,1.5145625596337413
+Satellite Image,OLS,1.5401476915753114
+Satellite Image,OLS,1.5106613975035923
+Satellite Image,OLS,1.5464207431571364
+Satellite Image,OLS,1.4685293428556518
+Satellite Image,OLS,1.513006524931537
+Satellite Image,OLS,1.503672415540977
+Satellite Image,OLS,1.5669752124821457
+Satellite Image,OLS,1.5144898192854865
