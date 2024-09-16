@@ -12,106 +12,83 @@ from functools import partial
 import warnings
 
 def optimized_rfs(X_train, y_train, X_val, y_val, max_k, B, optimize_m=True, fit_intercept=True, fs=False):
-    """
-    Perform Randomized Forward Selection with optional optimization of 'm' parameter.
-    This version builds on the model incrementally for each k and is parallelized across B.
-
-    Parameters:
-    X_train, y_train: Training data
-    X_val, y_val: Validation data
-    max_k: Maximum number of features to select
-    B: Number of random subsets
-    optimize_m: If True, optimize over all m; if False, set m = floor(p/3)
-    fit_intercept: If True, fit intercept in the linear regression
-    fs: If True, perform forward stepwise selection instead of randomized selection
-
-    Returns:
-    best_models: List of selected feature indices for each random subset
-    best_m: Optimal value for 'm' (or floor(p/3) if optimize_m is False)
-    best_k: Optimal number of features
-    """
     n, p = X_train.shape
     best_mse = float('inf')
-    best_models = None
+    best_final_model = None
+    best_k = None
 
-    if optimize_m:
-        m_range = range(1, p + 1)
-    else:
-        m_range = [p // 3]
+    m_range = range(1, p + 1) if optimize_m else [p // 3]
+    m_range = [p] if fs else m_range
 
-    if fs:
-        m_range = [p]
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        for m in m_range:
+            partial_rfs = partial(perform_single_rfs, X_train=X_train, y_train=y_train, 
+                                  max_k=max_k, m=m, p=p)
+            
+            futures = [executor.submit(partial_rfs, b) for b in range(B)]
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+            
+            models, coefficients = zip(*results)
 
-    for m in m_range:
-        # Partial function to use with multiprocessing
-        partial_rfs = partial(perform_single_rfs, X_train=X_train, y_train=y_train, 
-                              max_k=max_k, m=m, p=p)
-        
-        # Use multiprocessing to parallelize across B
-        with Pool(processes=cpu_count()) as pool:
-            results = pool.map(partial_rfs, range(B))
-        
-        models, coefficients = zip(*results)
+            final_model, mse_values = apply_rfs(X_train, y_train, X_val, y_val, models, coefficients, max_k, fit_intercept)
+            
+            best_k_for_m = np.argmin(mse_values) + 1
+            mse = mse_values[best_k_for_m - 1]
 
-        # Evaluate the model on validation data
-        mse_values = [mean_squared_error(y_val, apply_rfs(X_train, y_train, X_val, models, k, fit_intercept))
-                      for k in range(1, max_k + 1)]
-        mse = min(mse_values)
-        new_k = np.argmin(mse_values) + 1
+            if mse < best_mse:
+                best_mse = mse
+                best_m = m
+                best_k = best_k_for_m
+                best_final_model = final_model[:, :best_k_for_m]
 
-        if mse < best_mse:
-            best_mse = mse
-            best_m = m
-            best_k = new_k
-            best_models = models
-
-    return best_models, best_m, best_k
+    return best_final_model, best_m, best_k
 
 def perform_single_rfs(b, X_train, y_train, max_k, m, p):
-    """
-    Perform RFS for a single random subset.
-    """
     model = []
     residual = y_train.copy()
-    coefficients = np.array([])
+    coefficients = np.zeros((p, max_k))
 
-    for k in range(1, max_k+1):
+    for k in range(max_k):
         candidates = np.random.choice([i for i in range(p) if i not in model],
                                       size=min(m, p-len(model)), replace=False)
-        inner_products = np.abs([np.dot(X_train[:, j], residual) for j in candidates])
+        inner_products = np.abs(X_train[:, candidates].T @ residual)
         best_feature = candidates[np.argmax(inner_products)]
 
         model.append(best_feature)
-        X_new = X_train[:, best_feature].reshape(-1, 1)
-        if k == 1:
-            coefficients = np.linalg.lstsq(X_new, y_train, rcond=None)[0]
-        else:
-            X_prev = X_train[:, model[:-1]]
-            X_combined = np.column_stack((X_prev, X_new))
-            coefficients = np.linalg.lstsq(X_combined, y_train, rcond=None)[0]
-
-        residual = y_train - X_train[:, model] @ coefficients
+        X_new = X_train[:, model]
+        new_coefficients = np.linalg.lstsq(X_new, y_train, rcond=None)[0]
+        coefficients[model, k] = new_coefficients
+        residual = y_train - X_new @ new_coefficients
 
     return model, coefficients
 
-def apply_rfs(X_train, y_train, X_test, models, k, fit_intercept):
-    predictions = np.zeros(len(X_test))
-    for model in models:
-        X_train_subset = X_train[:, model[:k]]
-        X_test_subset = X_test[:, model[:k]]
+def apply_rfs(X_train, y_train, X_val, y_val, models, coefficients, max_k, fit_intercept):
+    n_val, p = X_val.shape
+    final_model = np.zeros((p, max_k))
+    mse_values = []
 
-        if fit_intercept:
-            # Add a column of ones for the intercept
-            X_train_subset = np.column_stack([np.ones(X_train_subset.shape[0]), X_train_subset])
-            X_test_subset = np.column_stack([np.ones(X_test_subset.shape[0]), X_test_subset])
+    for k in range(1, max_k + 1):
+        predictions = np.zeros(n_val)
+        for model, coef in zip(models, coefficients):
+            X_val_subset = X_val[:, model[:k]]
+            coef_subset = coef[model[:k], k-1]
+            
+            if fit_intercept:
+                X_val_subset = np.column_stack([np.ones(n_val), X_val_subset])
+                coef_subset = np.insert(coef_subset, 0, 0)  # Add intercept coefficient
 
-        # Fit the model
-        lr = np.linalg.lstsq(X_train_subset, y_train, rcond=None)[0]
+            predictions += X_val_subset @ coef_subset
 
-        # Make predictions
-        predictions += X_test_subset @ lr
+        predictions /= len(models)
+        mse = mean_squared_error(y_val, predictions)
+        mse_values.append(mse)
 
-    return predictions / len(models)
+        # Update final model
+        for model, coef in zip(models, coefficients):
+            final_model[model[:k], k-1] += coef[model[:k], k-1]
+        final_model[:, k-1] /= len(models)
+
+    return final_model, mse_values
 
 def generate_example1(n_train=50, n_val=50, n_test=300, seed=123):
     np.random.seed(seed)
