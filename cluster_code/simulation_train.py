@@ -98,7 +98,7 @@ def apply_rfs(X_train, y_train, X_test, models, k, fit_intercept):
 
     return predictions / len(models)
 
-def generate_example1(n_train=50, n_val=50, n_test=300, seed=123):
+def generate_example1(n_train=100, n_val=100, n_test=300, seed=123):
     np.random.seed(seed)
     n_total = n_train + n_val + n_test
     n_predictors = 8
@@ -124,7 +124,7 @@ def generate_example1(n_train=50, n_val=50, n_test=300, seed=123):
 
     return X_train, y_train, X_val, y_val, X_test, y_test, n_predictors
 
-def generate_example2(n_train=50, n_val=50, n_test=300, seed=123):
+def generate_example2(n_train=100, n_val=100, n_test=300, seed=123):
     np.random.seed(seed)
     n_total = n_train + n_val + n_test
     n_predictors = 8
@@ -173,7 +173,7 @@ def generate_example3(n_train=100, n_val=100, n_test=400, seed=123):
 
     return X_train, y_train, X_val, y_val, X_test, y_test, n_predictors
 
-def generate_example4(n_train=50, n_val=50, n_test=400, seed=123):
+def generate_example4(n_train=100, n_val=100, n_test=400, seed=123):
     np.random.seed(seed)
     n_total = n_train + n_val + n_test
     n_predictors = 40
@@ -206,7 +206,7 @@ def generate_example4(n_train=50, n_val=50, n_test=400, seed=123):
 
     return X_train, y_train, X_val, y_val, X_test, y_test, n_predictors
 
-def generate_example5(n_train=50, n_val=50, n_test=300, seed=123):
+def generate_example5(n_train=100, n_val=100, n_test=300, seed=123):
     np.random.seed(seed)
     n_total = n_train + n_val + n_test
     n_predictors = 100
@@ -229,7 +229,7 @@ def generate_example5(n_train=50, n_val=50, n_test=300, seed=123):
 
     return X_train, y_train, X_val, y_val, X_test, y_test, n_predictors
 
-def generate_example6(n_train=50, n_val=50, n_test=300, seed=123):
+def generate_example6(n_train=100, n_val=100, n_test=300, seed=123):
     np.random.seed(seed)
     n_total = n_train + n_val + n_test
     n_predictors = 100
