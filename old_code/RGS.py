@@ -108,15 +108,15 @@ class RandomizedGreedySelection(BaseEstimator, RegressorMixin):
 
 class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
     """
-    FastRandomizedGreedySelection is a feature selection algorithm that selects a subset of features
-    based on their correlation with the target variable. RGS randomly selects a fixed number of candidate features
+    Randomized Forward Selection (RFS) is a feature selection algorithm that selects a subset of features
+    based on their correlation with the target variable. RFS randomly selects a fixed number of candidate features
     at each iteration and chooses the feature with the highest correlation with the residuals. This process is
     repeated for a specified number of iterations to build an ensemble of linear regression models.
 
-    Parameters
-    ----------
-    k_max : int
-        The maximum number of features to select.
+    Parameters:
+    -----------
+    k : int
+        The number of features to select.
 
     alpha : float, optional (default=None)
         The fraction of features to randomly select as candidates at each iteration.
@@ -129,86 +129,84 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
     n_estimators : int, optional (default=1000)
         The number of linear regression models to build.
 
-    n_resample_iter : int, default=0
-        The number of resampling iterations to perform to speed up computation.
+    tol : int, optional (default=0)
+        The tolerance level for the minimum count of models to consider a feature set in the trajectory.
+    
+    resample : bool, optional (default=False)
+        Whether to resample the counts of active sets at each iteration.
+    
+    random_state : int or None, optional (default=None)
+        Seed for the random number generator.
 
-    random_state : int or None, default=None
-        The seed of the random number generator.
+    Attributes:
+    -----------
+    coef_ : ndarray of shape (n_features,)
+        Coefficients of the linear model.
 
-    Attributes
-    ----------
-    coef_ : list of ndarray
-        The coefficients of the linear model for each step k.
+    intercept_ : float
+        Intercept of the linear model.
 
-    intercept_ : list of float
-        The intercept of the linear model for each step k.
+    trajectory : list of collections.Counter
+        The trajectory of selected feature sets over iterations.    
 
-    feature_sets : list of Counter
-        The feature subsets selected at each step k.
-
-    Methods
-    -------
+    Methods:
+    --------
     fit(X, y)
-        Fit the model to the data.
+        Fit the RGS model to the training data.
 
-    predict(X, k=None)
-        Predict using the linear model for step k.
+    predict(X)
+        Predict the target variable for the input data.
+
+    step(active, X, y, m, n_iter, generator)
+        Perform one step of greedy search starting with the feature set active and for n_iter repetitions.
+
     """
 
-
-    def __init__(self, k_max, alpha=None, m=None, n_estimators=1000, n_resample_iter=0, random_state=None):
-        FastRandomizedGreedySelection._validate_args(k_max, alpha, m, n_estimators)
-        self.k_max = k_max
+    def __init__(self, k, alpha=None, m=None, n_estimators=1000, tol=0, resample=False, random_state=None):
+        FastRandomizedGreedySelection._validate_args(k, alpha, m, n_estimators)
+        self.k = k
         self.alpha = alpha
         self.m = m
         self.n_estimators = n_estimators
-        self.n_resample_iter = n_resample_iter
+        self.tol = tol
+        self.resample = resample
         self.random_state = random_state
 
     def fit(self, X, y):
-        # Initialize
         self._validate_training_inputs(X, y)
-        X_centered = X - X.mean(axis=0)
-        X_scaled = X_centered / np.sqrt(np.sum((X ** 2), axis=0))
+        self.preprocessor = StandardScaler()
+        X_scaled = self.preprocessor.fit_transform(X) # First center and normalize for fast compute
         _, self.p = X_scaled.shape
         generator = np.random.default_rng(self.random_state)
-        self.feature_sets = [Counter() for _ in range(self.k_max + 1)]
-        self.feature_sets[0] += Counter({frozenset({}) : self.n_estimators})
-        self.coef_ = []
-        self.intercept_ = []
-        for k in range(self.k_max + 1):
-            Ms = np.array(list(self.feature_sets[k].keys())) # All feature subsets appearing at step k
-            freqs = np.array(list(self.feature_sets[k].values())) # How many times each feature subset appears in step k
-            # Resample to speed up computation
-            for _ in range(self.n_resample_iter):
-                proportions = freqs / self.n_estimators
-                freqs = generator.multinomial(self.n_estimators, proportions)
-            Ms = Ms[freqs > 0]
-            freqs = freqs[freqs > 0]
-            coef_ = np.zeros(self.p)
-            for i in range(len(Ms)):
-                M = list(Ms[i])
-                # Compute least squares solution of y on X_M
-                beta, _, _, _ = lstsq(X_centered[:, M], y)
-                residuals = y - X_centered[:, M] @ beta
-                coef_[M] += beta * freqs[i]
-                if k < self.k_max:
-                    # Compute residual correlation with features not in M
-                    mask = np.ones(self.p, dtype=bool)
-                    mask[M] = False
-                    M_comp = np.arange(self.p)[mask]
-                    correlations = np.abs(X_scaled[:, M_comp].T @ residuals)
-                    # Generate new feature subsets
-                    self.feature_sets[k+1] += self._get_new_feature_sets(M, M_comp, correlations, freqs[i], generator)
-            # Calculate parameters
-            self.coef_.append(coef_ / self.n_estimators)
-            self.intercept_.append(y.mean() - np.dot(X.mean(axis=0), coef_ / self.n_estimators))
+        self.trajectory = [Counter({frozenset({}) : self.n_estimators})]
+        for j in range(self.k):
+            active_sets = list(self.trajectory[j].keys()) # All feature subsets at step j
+            counts = list(self.trajectory[j].values()) # How many times each feature subset appears in step j
+            self.trajectory.append(Counter()) # Initialize the Counter for the feature subsets at step j+1
+            if self.resample:
+                total_count = sum(counts)
+                proportions = np.array(counts) / total_count
+                counts = generator.multinomial(self.n_estimators, proportions) # Resample the counts
+            for active_set, count in zip(active_sets, counts):
+                # For each feature set that occuring more than self.tol times, compute the next step
+                if count > self.tol:
+                    self.trajectory[j+1] += step(active_set, X_scaled, y, self.m, count, generator)
+        # Average over the feature sets at the last step to compute the final estimator
+        self.coef_ = np.zeros(self.p)
+        X_mean = X.mean(axis=0)
+        X_centered = X - X_mean
+        total_count = 0
+        for selected, count in self.trajectory[self.k].items():
+            selected = list(selected)
+            beta, _, _, _ = lstsq(X_centered[:, selected], y)
+            self.coef_[selected] += beta * count
+            total_count += count
+        self.coef_ = self.coef_ / total_count
+        self.intercept_ = y.mean() - np.dot(X_mean, self.coef_)
 
-    def predict(self, X, k=None):
+    def predict(self, X):
         assert X.ndim == 2 and X.shape[1] == self.p
-        if k is None:
-            k = self.k_max
-        return X @ self.coef_[k] + self.intercept_[k]
+        return X @ self.coef_ + self.intercept_
         
     @staticmethod
     def _validate_args(k, alpha, m, n_estimators):
@@ -223,35 +221,43 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
     def _validate_training_inputs(self, X, y):
         check_X_y(X, y)
         _, p = X.shape
-        assert self.k_max <= p
+        assert self.k <= p
         if self.m is None:
             self.m = np.ceil(self.alpha * p)
         assert self.m <= p
 
-    def _get_new_feature_sets(self, M, M_comp, correlations, n_iter, generator):
-        # Generate candidates for next step for each iteration
-        n_candidates = min(self.m, len(M_comp))
-        candidates = np.zeros((n_iter, n_candidates), dtype=int)
-        for iter in range(n_iter):
-            candidates[iter, :] = generator.choice(range(len(M_comp)), size=n_candidates, replace=False)
-        # Compute the top candidate feature across each iteration
-        candidate_correlations = correlations[candidates.flatten()].reshape(n_iter, n_candidates)
-        max_index_in_subset = np.argmax(candidate_correlations, axis=1)
-        psi_vals = M_comp[candidates[range(n_iter), max_index_in_subset]]
-        # Summarize the results in a Counter object
-        psi_freqs = np.bincount(psi_vals)
-        psi_vals_unique = np.nonzero(psi_freqs)[0]
-        M_new_unique = [frozenset(set(M) | {feat}) for feat in psi_vals_unique]
-        M_new_freqs = Counter(dict(zip(M_new_unique, psi_freqs[psi_vals_unique])))
-        return M_new_freqs
+
+def step(active, X, y, m, n_iter, generator):
+
+    active = list(active)
+    p = X.shape[1]
+    mask = np.ones(p, dtype=bool)
+    mask[active] = False
+    non_active = np.arange(p)[mask]
+
+    # Step 1: Compute absolute correlations with current residual
+    X_active = X[:, active]
+    beta, _, _, _ = lstsq(X_active, y)
+    residuals = y - X_active @ beta
+    correlations = np.abs(X[:, non_active].T @ residuals)
     
-    # def fit_stability(self):
-    #     self.stability_scores = np.zeros(self.k_max + 1)
-    #     for k in range(1, self.k_max + 1):
-    #         score = 0
-    #         for M1, freq1 in self.feature_sets[k].items():
-    #             for M2, freq2 in self.feature_sets[k].items():
-    #                 score += (k - len(M1 & M2)) * freq1 * freq2
-    #         score = score / (self.n_estimators ** 2)
-    #         self.stability_scores[k] = score
-    #     return self.stability_scores
+    # Step 2: Create candidate feature subsets
+    n_candidates = min(m, len(non_active))
+    candidates = np.zeros((n_iter, n_candidates), dtype=int)
+    for iter in range(n_iter):
+        candidates[iter, :] = generator.choice(range(len(non_active)), size=n_candidates, replace=False)
+
+    # Step 3: Compute the top candidate feature across each iteration
+    candidate_correlations = correlations[candidates.flatten()]
+    candidate_correlations = candidate_correlations.reshape(n_iter, n_candidates)
+    max_index_in_subset = np.argmax(candidate_correlations, axis=1)
+    selected_features = non_active[candidates[range(n_iter), max_index_in_subset]]
+
+    # Step 4: Summarize the results in a Counter object
+    selected_feature_counts = np.bincount(selected_features)
+    selected_features_unique = np.nonzero(selected_feature_counts)[0]
+    active = set(active)
+    active_new_unique = [frozenset(active | {feat}) for feat in selected_features_unique]
+    active_new_counts = Counter(dict(zip(active_new_unique, selected_feature_counts[selected_features_unique])))
+
+    return active_new_counts
