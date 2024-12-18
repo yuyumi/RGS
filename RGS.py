@@ -1,5 +1,6 @@
 from collections import Counter, defaultdict
 import numpy as np
+import pandas as pd
 
 from sklearn.base import BaseEstimator, RegressorMixin, check_X_y
 from sklearn.linear_model import LinearRegression
@@ -167,7 +168,7 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
 
     def fit(self, X, y):
         # Initialize
-        self._validate_training_inputs(X, y)
+        X, y = self._validate_training_inputs(X, y)
         X_centered = X - X.mean(axis=0)
         X_scaled = X_centered / np.sqrt(np.sum((X ** 2), axis=0))
         _, self.p = X_scaled.shape
@@ -227,6 +228,9 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
         if self.m is None:
             self.m = np.ceil(self.alpha * p)
         assert self.m <= p
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        return X, y
 
     def _get_new_feature_sets(self, M, M_comp, correlations, n_iter, generator):
         # Generate candidates for next step for each iteration
