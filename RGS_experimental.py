@@ -166,9 +166,9 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
             for iter in range(freq):
                 candidates[iter, :] = generator.choice(range(len(M_comp)), size=n_candidates, replace=False)
             # Compute the top candidate feature across each iteration
-            candidate_correlations = correlations[candidates.flatten()].reshape(n_iter, n_candidates)
+            candidate_correlations = correlations[candidates.flatten()].reshape(freq, n_candidates)
             max_index_in_subset = np.argmax(candidate_correlations, axis=1)
-            psi_vals = M_comp[candidates[range(n_iter), max_index_in_subset]]
+            psi_vals = M_comp[candidates[range(freq), max_index_in_subset]]
             # Summarize the results in a Counter object
             psi_freqs = np.bincount(psi_vals)
             psi_vals_unique = np.nonzero(psi_freqs)[0]
