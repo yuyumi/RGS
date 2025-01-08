@@ -43,7 +43,7 @@ def plot_mse_by_sigma(csv_path, save_path=None):
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(8, 5))
     ax = fig.add_subplot(111)
     
     # Create color palette - optimized for both color and B&W printing
@@ -110,7 +110,7 @@ def plot_mse_by_sigma(csv_path, save_path=None):
     # Save the figure if a save path is provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"mse_by_sigma_{timestamp}.png"
+        save_path = f"../figures/mse_by_sigma_{timestamp}.png"
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     
@@ -141,15 +141,17 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(8, 5))
     ax = fig.add_subplot(111)
     
     # Create color palette - optimized for both color and B&W printing
-    colors = ['#E69F00',   # orange
-              '#56B4E9',   # light blue
-              '#009E73',   # green
-              '#CC79A7',   # pink
-              '#0072B2']   # dark blue
+    colors = {
+        'mse_lasso': '#E63946',    # Deep Red
+        'mse_ridge': '#1D3557',    # Navy Blue
+        'mse_elastic': '#2A9D8F',  # Teal
+        'mse_fgs_optimal': '#F4A261',  # Orange
+        'mse_rgs_optimal': '#9B4F96'   # Purple
+    }
     
     # Plot each method
     for i, mse_col in enumerate(mse_columns):
@@ -177,7 +179,7 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
         ax.errorbar(var_values, mean_values,
                     yerr=1.96 * se_values,
                     marker='o',
-                    color=colors[i],
+                    color=colors[mse_col],
                     label=label,
                     capsize=3,
                     capthick=1,
@@ -187,7 +189,7 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
         # Plot the main line again on top to ensure it's solid
         ax.plot(var_values, mean_values,
                 marker='o',
-                color=colors[i],
+                color=colors[mse_col],
                 zorder=2)
     
     # Set log scale for y-axis
@@ -195,14 +197,16 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     
     # Customize plot
     ax.set_xlabel('Proportion of Variance Explained', fontsize=12)
-    ax.set_ylabel('Mean Square Error', fontsize=12)
-    ax.set_title(f'Mean Square Error by Variance Explained (norm_beta={norm_beta})\n(Optimal configurations for FGS and RGS)', 
+    ax.set_ylabel('In-sample Error', fontsize=12)
+    ax.set_title(f'In-sample Error by PVE', 
                 fontsize=14)
     
-    # Add legend
-    ax.legend(bbox_to_anchor=(1.05, 1), 
-             loc='upper left', 
-             fontsize=10)
+    # Add legend in top right corner of plot
+    legend = plt.legend(loc='upper right',
+                       fontsize=10,
+                       frameon=True,
+                       edgecolor='black')
+    legend.get_frame().set_alpha(1)
     
     # Adjust layout
     plt.tight_layout()
@@ -210,7 +214,7 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     # Save the figure if a save path is provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"mse_by_variance_{timestamp}.png"
+        save_path = f"../figures/mse_by_variance_{timestamp}.png"
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     
@@ -238,7 +242,7 @@ def plot_df_by_sigma(csv_path, save_path=None):
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(7, 5))
     ax = fig.add_subplot(111)
     
     # Create color palette - optimized for both color and B&W printing
@@ -304,7 +308,7 @@ def plot_df_by_sigma(csv_path, save_path=None):
     # Save the figure if a save path is provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"df_by_sigma_{timestamp}.png"
+        save_path = f"../figures/df_by_sigma_{timestamp}.png"
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     
@@ -315,7 +319,7 @@ def plot_df_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     # Generate default save path if none provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"df_by_variance_{timestamp}.png"
+        save_path = f"../figures/df_by_variance_{timestamp}.png"
     
     # Read the CSV file
     df = pd.read_csv(csv_path)
@@ -407,7 +411,7 @@ def extract_m_value(column_name):
 
 def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     """
-    Plot df vs k curves for FGS and RGS methods at a specific sigma value.
+    Plot df vs k curves for GS and RGS methods at a specific sigma value.
     
     Args:
         csv_path (str): Path to CSV file
@@ -418,7 +422,7 @@ def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     # Generate default save path if none provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"df_vs_k_sigma{target_sigma}_{timestamp}.png"
+        save_path = f"../figures/df_vs_k_sigma{target_sigma}_{timestamp}.png"
     
     # Read CSV file
     df = pd.read_csv(csv_path)
@@ -430,29 +434,40 @@ def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     filtered_df = df[mask]
     
     # Create figure
-    plt.figure(figsize=(15, 6))
+    fig = plt.figure(figsize=(7, 5))
+    ax = fig.add_subplot(111)
     
-    # Create two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-    
-    # Plot FGS (left subplot)
+    # Plot GS
     fgs_cols = [col for col in df.columns if col.startswith('df_fgs_k')]
     k_values = [extract_k_value(col) for col in fgs_cols]
-    
     df_values = filtered_df[fgs_cols].iloc[0]
-    ax1.plot(k_values, df_values, marker='o', linewidth=2, label='FGS')
     
-    ax1.set_xlabel('k', fontsize=12)
-    ax1.set_ylabel('Degrees of Freedom', fontsize=12)
-    ax1.set_title(f'FGS: DF vs k (σ = {target_sigma})', fontsize=14)
-    ax1.grid(True)
+    # Sort by k values
+    k_df_pairs = sorted(zip(k_values, df_values))
+    k_values_sorted = [k for k, _ in k_df_pairs]
+    df_values_sorted = [d for _, d in k_df_pairs]
     
-    # Plot RGS (right subplot)
+    # Plot GS in deep red
+    ax.plot(k_values_sorted, df_values_sorted, 
+            marker='o', 
+            linewidth=2, 
+            label='GS',
+            color='#E63946',  # Deep Red for GS
+            markersize=6)
+    
+    # Plot RGS for different m values, excluding m=250
     rgs_base_cols = [col for col in df.columns if col.startswith('df_rgs_m')]
     unique_m_values = sorted(list(set([extract_m_value(col) for col in rgs_base_cols])))
+    unique_m_values = [m for m in unique_m_values if m != 250]  # Exclude m=250
     
-    # Create color palette for different m values
-    colors = sns.color_palette("husl", n_colors=len(unique_m_values))
+    # Generate colors for RGS curves using a colormap
+    # Using our color scheme but generating additional colors if needed
+    base_colors = ['#1D3557', '#2A9D8F', '#F4A261', '#9B4F96']  # Our original colors
+    if len(unique_m_values) <= len(base_colors):
+        colors = base_colors[:len(unique_m_values)]
+    else:
+        # If we need more colors, generate them using a colormap
+        colors = plt.cm.Set2(np.linspace(0, 1, len(unique_m_values)))
     
     for idx, m in enumerate(unique_m_values):
         rgs_cols_m = [col for col in rgs_base_cols if f'_m{m}_' in col]
@@ -464,14 +479,29 @@ def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
         k_values_sorted = [k for k, _ in k_df_pairs]
         df_values_sorted = [d for _, d in k_df_pairs]
         
-        ax2.plot(k_values_sorted, df_values_sorted, marker='o', 
-                linewidth=2, label=f'm = {m}', color=colors[idx])
+        ax.plot(k_values_sorted, df_values_sorted, 
+                marker='o', 
+                linewidth=2, 
+                label=f'RGS (m = {m})', 
+                color=colors[idx],
+                markersize=6)
     
-    ax2.set_xlabel('k', fontsize=12)
-    ax2.set_ylabel('Degrees of Freedom', fontsize=12)
-    ax2.set_title(f'RGS: DF vs k for different m (σ = {target_sigma})', fontsize=14)
-    ax2.grid(True)
-    ax2.legend(title='Window Size (m)', bbox_to_anchor=(1.05, 1), loc='upper left')
+    # Customize plot
+    ax.set_xlabel('k', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Degrees of Freedom', fontsize=12, fontweight='bold')
+    ax.set_title(f'Degrees of Freedom vs k (σ = {target_sigma})', 
+                fontsize=14, 
+                fontweight='bold',
+                pad=20)
+    
+    # Remove grid
+    ax.grid(False)
+    
+    # Add legend in upper left
+    ax.legend(loc='upper left', 
+             frameon=True, 
+             edgecolor='black',
+             fontsize=10)
     
     # Adjust layout
     plt.tight_layout()
@@ -494,7 +524,7 @@ def plot_mse_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     # Generate default save path if none provided
     if save_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"mse_vs_k_sigma{target_sigma}_{timestamp}.png"
+        save_path = f"../figures/mse_vs_k_sigma{target_sigma}_{timestamp}.png"
     
     # Read CSV file
     df = pd.read_csv(csv_path)
