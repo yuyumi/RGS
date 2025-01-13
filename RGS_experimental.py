@@ -29,7 +29,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         The fixed number of features to randomly select as candidates at each iteration.
         Either `alpha` or `m` should be provided.
 
-    n_estimators : int, optional (default=1000)
+    n_replications : int, optional (default=1000)
         The number of linear regression models to build.
 
     n_resample_iter : int, default=0
@@ -59,11 +59,11 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
     """
 
 
-    def __init__(self, k_max, m_grid, n_estimators=1000, n_resample_iter=0, random_state=None, cv=None):
-        # FastRandomizedGreedySelectionCV._validate_args(k_max, alpha, m, n_estimators)
+    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, random_state=None, cv=None):
+        # FastRandomizedGreedySelectionCV._validate_args(k_max, alpha, m, n_replications)
         self.k_max = k_max
         self.m_grid = m_grid
-        self.n_estimators = n_estimators
+        self.n_replications = n_replications
         self.n_resample_iter = n_resample_iter
         self.random_state = random_state
         if cv is None:
@@ -82,22 +82,29 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
             y_val = y[val_ids]
             self.fit_fold(X_train, y_train, X_val, y_val)
         
+        # print("\nMSE scores for each (k,m) combination:")
+        for k in range(1, self.k_max+1):
+            # print(f"\nk={k}:")
+            for m in self.m_grid:
+                mean_score = np.mean(self.cv_scores_[k][m])
+                std_score = np.std(self.cv_scores_[k][m])
+                # print(f"  m={m:2d}: {mean_score:.6f} ± {std_score:.6f}")
+        
         # Find best hyperparameters
-        # print("\nFinding best hyperparameters...")
-        best_m = np.array([max(self.cv_scores_[k], key=lambda m: np.mean(self.cv_scores_[k][m])) 
-                        for k in range(1, self.k_max+1)])
+        # For each k, find best m and its score
+        best_params = {}
+        for k in range(1, self.k_max+1):
+            # Find m with minimum mean MSE for this k
+            mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
+            best_m = min(mean_scores.items(), key=lambda x: x[1])
+            best_params[k] = {'m': best_m[0], 'score': best_m[1]}
+            # print(f"k={k}: best m={best_m[0]} with MSE={best_m[1]:.6f}")
         
-        mean_scores = [np.mean(self.cv_scores_[k][best_m[k-1]]) 
-                    for k in range(1, self.k_max+1)]
+        # Find k with lowest overall MSE
+        self.k_ = min(best_params.items(), key=lambda x: x[1]['score'])[0]
+        self.m_ = best_params[self.k_]['m']
         
-        # print("\nMean scores for each k:")
-        # for k in range(1, self.k_max+1):
-        #     print(f"k={k}: best_m={best_m[k-1]}, score={mean_scores[k-1]:.6f}")
-        
-        self.k_ = np.argmin(mean_scores) + 1
-        self.m_ = best_m[self.k_-1]
-        
-        # print(f"\nSelected parameters: k={self.k_}, m={self.m_}")
+        # print(f"\nSelected k={self.k_}, m={self.m_} with MSE={best_params[self.k_]['score']:.6f}")
         return self
 
     def fit_fold(self, X_train, y_train, X_val, y_val):
@@ -119,7 +126,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         
         # Initialize k=0 with empty set
         for m in self.m_grid:
-            self.feature_sets[0][m] = Counter({frozenset(): self.n_estimators})
+            self.feature_sets[0][m] = Counter({frozenset(): self.n_replications})
         
         # print("\nInitializing k=1 based on correlations...")
         # Initialize k=1 
@@ -132,7 +139,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
             n_candidates = min(m, self.p)
             candidates = generator.choice(range(self.p), size=n_candidates, replace=False)
             psi = candidates[np.argmax(correlations[candidates])]
-            feature_sets[frozenset({psi})] = self.n_estimators
+            feature_sets[frozenset({psi})] = self.n_replications
             self.feature_sets[1][m] = Counter(feature_sets)
             # print(f"  m={m}: selected feature {psi}")
         
@@ -154,8 +161,8 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
                     
                     if self.n_resample_iter > 0:
                         # print(f"    Resampling with {self.n_resample_iter} iterations")
-                        proportions = freqs / self.n_estimators
-                        freqs = generator.multinomial(self.n_estimators, proportions)
+                        proportions = freqs / self.n_replications
+                        freqs = generator.multinomial(self.n_replications, proportions)
                     Ms = [M for M, f in zip(Ms, freqs) if f > 0]
                     freqs = freqs[freqs > 0]
                     
@@ -203,9 +210,9 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
             # Update parameters and compute CV scores
             # print(f"\n  Computing CV scores for k={k}:")
             for m in self.m_grid:
-                self.coef_[m].append(coef_[m] / self.n_estimators)
+                self.coef_[m].append(coef_[m] / self.n_replications)
                 self.intercept_[m].append(
-                    y_train.mean() - np.dot(X_train.mean(axis=1), coef_[m] / self.n_estimators)
+                    y_train.mean() - np.dot(X_train.mean(axis=1), coef_[m] / self.n_replications)
                 )
                 
                 y_preds = (X_val.T @ self.coef_[m][k-1]) + self.intercept_[m][k-1]
@@ -218,9 +225,9 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         return X @ self.coef_[self.m_][self.k_] + self.intercept_[self.m_][self.k_]
         
     @staticmethod
-    def _validate_args(k, alpha, m, n_estimators):
+    def _validate_args(k, alpha, m, n_replications):
         assert isinstance(k, int) and k > 0
-        assert isinstance(n_estimators, int) and n_estimators > 0
+        assert isinstance(n_replications, int) and n_replications > 0
         assert alpha is None or m is None
         if alpha is not None:
             assert 0 < alpha <= 1
