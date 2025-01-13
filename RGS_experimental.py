@@ -73,64 +73,145 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         self.cv_scores_ = {k : {m : [] for m in m_grid} for k in range(1, k_max+1)}
 
     def fit(self, X, y):
-        for (train_ids, val_ids) in self.cv.split(X):
-            X_train = X[:, train_ids]
-            X_val = X[:, val_ids]
+        # print("Starting cross-validation...")
+        for fold, (train_ids, val_ids) in enumerate(self.cv.split(X), 1):
+            # print(f"\nFold {fold}/{self.cv.n_splits}")
+            X_train = X[train_ids]
+            X_val = X[val_ids]
             y_train = y[train_ids]
             y_val = y[val_ids]
             self.fit_fold(X_train, y_train, X_val, y_val)
+        
         # Find best hyperparameters
-        best_m = np.array([max(self.cv_scores_[k], key=lambda m: np.mean(self.cv_scores_[k][m])) for k in range(1, self.k_max+1)])
-        self.k_ = np.argmax([np.mean(self.cv_scores_[k][best_m[k+1]]) for k in range(self.k_max)]) + 1
-        self.m_ = best_m[self.k - 1]
+        # print("\nFinding best hyperparameters...")
+        best_m = np.array([max(self.cv_scores_[k], key=lambda m: np.mean(self.cv_scores_[k][m])) 
+                        for k in range(1, self.k_max+1)])
+        
+        mean_scores = [np.mean(self.cv_scores_[k][best_m[k-1]]) 
+                    for k in range(1, self.k_max+1)]
+        
+        # print("\nMean scores for each k:")
+        # for k in range(1, self.k_max+1):
+        #     print(f"k={k}: best_m={best_m[k-1]}, score={mean_scores[k-1]:.6f}")
+        
+        self.k_ = np.argmin(mean_scores) + 1
+        self.m_ = best_m[self.k_-1]
+        
+        # print(f"\nSelected parameters: k={self.k_}, m={self.m_}")
+        return self
 
     def fit_fold(self, X_train, y_train, X_val, y_val):
+        # print("\nStarting new fold...")
         # Initialize
         X_train, y_train = self._validate_training_inputs(X_train, y_train)
-        X_centered = X_train - X_train.mean(axis=0)
-        X_scaled = X_centered / np.sqrt(np.sum((X_train ** 2), axis=0))
-        _, self.p = X_scaled.shape
+        X_train = X_train.T  
+        X_val = X_val.T
+        X_centered = X_train - X_train.mean(axis=1, keepdims=True)
+        X_scaled = X_centered / np.sqrt(np.sum((X_train ** 2), axis=1, keepdims=True))
+        self.p = X_train.shape[0]
         generator = np.random.default_rng(self.random_state)
+        
+        # print(f"Initialized with {self.p} features")
+        # print(f"m_grid: {self.m_grid}")
+        
+        # Initialize feature sets for all k
         self.feature_sets = [{} for _ in range(self.k_max + 1)]
+        
+        # Initialize k=0 with empty set
         for m in self.m_grid:
-            self.feature_sets[0][m] = Counter({frozenset({}) : self.n_estimators})
+            self.feature_sets[0][m] = Counter({frozenset(): self.n_estimators})
+        
+        # print("\nInitializing k=1 based on correlations...")
+        # Initialize k=1 
+        residuals = y_train - y_train.mean()
+        correlations = np.abs(X_scaled @ residuals)
+        
+        # Initialize k=1 based on correlations
+        for m in self.m_grid:
+            feature_sets = {}
+            n_candidates = min(m, self.p)
+            candidates = generator.choice(range(self.p), size=n_candidates, replace=False)
+            psi = candidates[np.argmax(correlations[candidates])]
+            feature_sets[frozenset({psi})] = self.n_estimators
+            self.feature_sets[1][m] = Counter(feature_sets)
+            # print(f"  m={m}: selected feature {psi}")
+        
         self.coef_ = {m : [] for m in self.m_grid}
         self.intercept_ = {m : [] for m in self.m_grid}
-        for k in range(self.k_max + 1):
+
+        # Main loop
+        for k in range(1, self.k_max + 1):
+            # print(f"\nProcessing k={k}...")
             feature_set_freqs = defaultdict(dict)
             for m in self.m_grid:
-                Ms = np.array(list(self.feature_sets[k][m].keys())) # All feature subsets appearing at step k
-                freqs = np.array(list(self.feature_sets[k][m].values())) # How many times each feature subset appears in step k
-                # Resample to speed up computation
-                for _ in range(self.n_resample_iter):
-                    proportions = freqs / self.n_estimators
-                    freqs = generator.multinomial(self.n_estimators, proportions)
-                Ms = Ms[freqs > 0]
-                freqs = freqs[freqs > 0]
-                for M, freq in zip(Ms, freqs):
-                    feature_set_freqs[M][m] = freq
-            coef_ = {m : np.zeros(self.p) for m in self.m_grid}
-            for M, freqs_dict in feature_set_freqs.items():
-                # Compute least squares solution of y on X_M
-                beta, _, _, _ = lstsq(X_centered[:, M], y_train)
-                residuals = y_train - X_centered[:, M] @ beta
+                Ms = list(self.feature_sets[k][m].keys())
+                freqs = list(self.feature_sets[k][m].values())
+                # print(f"  m={m}: current feature sets: {[list(M) for M in Ms]}")
+                
+                if len(Ms) > 0:
+                    Ms = [np.array(list(M), dtype=int) if len(M) > 0 else np.array([], dtype=int) for M in Ms]
+                    freqs = np.array(freqs)
+                    
+                    if self.n_resample_iter > 0:
+                        # print(f"    Resampling with {self.n_resample_iter} iterations")
+                        proportions = freqs / self.n_estimators
+                        freqs = generator.multinomial(self.n_estimators, proportions)
+                    Ms = [M for M, f in zip(Ms, freqs) if f > 0]
+                    freqs = freqs[freqs > 0]
+                    
+                    for M, freq in zip(Ms, freqs):
+                        feature_set_freqs[tuple(M)][m] = freq
+                        
+            coef_ = {m : np.zeros(self.p) for m in self.m_grid}  # Moved this initialization up
+            
+            # Process each feature set
+            for M_tuple, freqs_dict in feature_set_freqs.items():
+                M = np.array(M_tuple)
+                # print(f"  Processing feature set: {M}")
+                
+                if len(M) == 0:
+                    beta = np.array([])
+                    residuals = y_train - y_train.mean()
+                else:
+                    selected_features = X_centered[M, :]
+                    beta, _, _, _ = lstsq(selected_features.T, y_train)
+                    residuals = y_train - selected_features.T @ beta
+                
+                # Update coefficients
                 for m, freq in freqs_dict.items():
-                    coef_[m][M] += beta * freq
+                    if len(M) > 0:
+                        coef_[m][M] += beta * freq
+                        
                 if k < self.k_max:
-                    # Compute residual correlation with features not in M
+                    # Generate new feature sets
                     mask = np.ones(self.p, dtype=bool)
-                    mask[M] = False
+                    if len(M) > 0:
+                        mask[M] = False
                     M_comp = np.arange(self.p)[mask]
-                    correlations = np.abs(X_scaled[:, M_comp].T @ residuals)
-                    # Generate new feature subsets
-                    self.feature_sets[k+1] = self._get_new_feature_sets(M, M_comp, correlations, freqs_dict, generator)
+                    correlations = np.abs(X_scaled[M_comp, :] @ residuals)
+                    
+                    new_feature_sets = self._get_new_feature_sets(
+                        frozenset(M_tuple), M_comp, correlations, freqs_dict, generator
+                    )
+                    
+                    # Print new feature sets
+                    for m in self.m_grid:
+                        if m in new_feature_sets:
+                    #         print(f"    m={m}: new feature sets: {[list(M) for M in new_feature_sets[m].keys()]}")
+                            self.feature_sets[k+1][m] = new_feature_sets[m]
+            
+            # Update parameters and compute CV scores
+            # print(f"\n  Computing CV scores for k={k}:")
             for m in self.m_grid:
-                # Calculate parameters
                 self.coef_[m].append(coef_[m] / self.n_estimators)
-                self.intercept_[m].append(y_train.mean() - np.dot(X_train.mean(axis=0), coef_[m] / self.n_estimators))
-                # Compute CV values
-                y_preds = X_val @ self.coef_[m][k] + self.intercept_[m][k]
-                self.cv_scores_[k][m].append(mean_squared_error(y_val, y_preds))
+                self.intercept_[m].append(
+                    y_train.mean() - np.dot(X_train.mean(axis=1), coef_[m] / self.n_estimators)
+                )
+                
+                y_preds = (X_val.T @ self.coef_[m][k-1]) + self.intercept_[m][k-1]
+                score = mean_squared_error(y_val, y_preds)
+                self.cv_scores_[k][m].append(score)
+                # print(f"    m={m}: MSE = {score:.6f}")
 
     def predict(self, X):
         assert X.ndim == 2 and X.shape[1] == self.p
@@ -150,9 +231,8 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         check_X_y(X, y)
         _, p = X.shape
         assert self.k_max <= p
-        if self.m is None:
-            self.m = np.ceil(self.alpha * p)
-        assert self.m <= p
+        # Remove the m/alpha validation since we're using m_grid now
+        assert all(m <= p for m in self.m_grid)  # Verify all m values are valid
         if isinstance(X, pd.DataFrame):
             X = X.values
         return X, y
@@ -160,7 +240,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
     def _get_new_feature_sets(self, M, M_comp, correlations, freqs_dict, generator):
         # Generate candidates for next step for each iteration
         feature_sets = {}
-        for m, freq in freqs_dict:
+        for m, freq in freqs_dict.items():
             n_candidates = min(m, len(M_comp))
             candidates = np.zeros((freq, n_candidates), dtype=int)
             for iter in range(freq):
