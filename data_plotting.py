@@ -26,20 +26,20 @@ def plot_mse_by_sigma(csv_path, save_path=None):
     df = pd.read_csv(csv_path)
     
     # Create arrays to store optimal MSE values
-    optimal_fgs_mse = []
+    optimal_gs_mse = []
     optimal_rgs_mse = []
     
     # For each row, get optimal configurations
     for idx in range(len(df)):
-        optimal_fgs_mse.append(get_optimal_configuration(df, idx, 'pen_fgs_', 'mse_fgs_'))
+        optimal_gs_mse.append(get_optimal_configuration(df, idx, 'pen_gs_', 'mse_gs_'))
         optimal_rgs_mse.append(get_optimal_configuration(df, idx, 'pen_rgs_', 'mse_rgs_'))
     
     # Add optimal values to dataframe
-    df['mse_fgs_optimal'] = optimal_fgs_mse
+    df['mse_gs_optimal'] = optimal_gs_mse
     df['mse_rgs_optimal'] = optimal_rgs_mse
     
     # Get final MSE columns to plot
-    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_fgs_optimal', 'mse_rgs_optimal']
+    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_gs_optimal', 'mse_rgs_optimal']
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
@@ -95,7 +95,7 @@ def plot_mse_by_sigma(csv_path, save_path=None):
     # Customize plot
     plt.xlabel('Sigma (Noise Level)', fontsize=12)
     plt.ylabel('Mean Square Error', fontsize=12)
-    plt.title('Mean Square Error by Sigma Level with 95% Confidence Intervals\n(Optimal configurations for FGS and RGS)', fontsize=14)
+    plt.title('Mean Square Error by Sigma Level with 95% Confidence Intervals\n(Optimal configurations for gs and RGS)', fontsize=14)
     
     # Add legend
     plt.legend(bbox_to_anchor=(1.05, 1), 
@@ -121,23 +121,23 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     df = pd.read_csv(csv_path)
     
     # Create arrays to store optimal MSE values
-    optimal_fgs_mse = []
+    optimal_gs_mse = []
     optimal_rgs_mse = []
     
     # For each row, get optimal configurations
     for idx in range(len(df)):
-        optimal_fgs_mse.append(get_optimal_configuration(df, idx, 'pen_fgs_', 'mse_fgs_'))
+        optimal_gs_mse.append(get_optimal_configuration(df, idx, 'pen_gs_', 'mse_gs_'))
         optimal_rgs_mse.append(get_optimal_configuration(df, idx, 'pen_rgs_', 'mse_rgs_'))
     
     # Add optimal values to dataframe
-    df['mse_fgs_optimal'] = optimal_fgs_mse
+    df['mse_gs_optimal'] = optimal_gs_mse
     df['mse_rgs_optimal'] = optimal_rgs_mse
     
     # Calculate proportion of variance explained
     df['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
     
     # Get MSE columns to plot
-    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_fgs_optimal', 'mse_rgs_optimal']
+    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_gs_optimal', 'mse_rgs_optimal']
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
@@ -149,7 +149,7 @@ def plot_mse_by_variance_explained(csv_path, norm_beta=10, save_path=None):
         'mse_lasso': '#E63946',    # Deep Red
         'mse_ridge': '#1D3557',    # Navy Blue
         'mse_elastic': '#2A9D8F',  # Teal
-        'mse_fgs_optimal': '#F4A261',  # Orange
+        'mse_gs_optimal': '#F4A261',  # Orange
         'mse_rgs_optimal': '#9B4F96'   # Purple
     }
     
@@ -225,20 +225,20 @@ def plot_df_by_sigma(csv_path, save_path=None):
     df = pd.read_csv(csv_path)
     
     # Create arrays to store optimal df values
-    optimal_fgs_df = []
+    optimal_gs_df = []
     optimal_rgs_df = []
     
     # For each row, get optimal configurations
     for idx in range(len(df)):
-        optimal_fgs_df.append(get_optimal_configuration(df, idx, 'pen_fgs_', 'df_fgs_'))
+        optimal_gs_df.append(get_optimal_configuration(df, idx, 'pen_gs_', 'df_gs_'))
         optimal_rgs_df.append(get_optimal_configuration(df, idx, 'pen_rgs_', 'df_rgs_'))
     
     # Add optimal values to dataframe
-    df['df_fgs_optimal'] = optimal_fgs_df
+    df['df_gs_optimal'] = optimal_gs_df
     df['df_rgs_optimal'] = optimal_rgs_df
     
     # Get df columns to plot
-    df_columns = ['df_lasso', 'df_ridge', 'df_elastic', 'df_fgs_optimal', 'df_rgs_optimal']
+    df_columns = ['df_lasso', 'df_ridge', 'df_elastic', 'df_gs_optimal', 'df_rgs_optimal']
     
     # Create figure
     sns.set_style("white")  # Remove gridlines
@@ -294,7 +294,7 @@ def plot_df_by_sigma(csv_path, save_path=None):
     # Customize plot
     ax.set_xlabel('Sigma (Noise Level)', fontsize=12)
     ax.set_ylabel('Degrees of Freedom', fontsize=12)
-    ax.set_title('Degrees of Freedom by Sigma Level with 95% Confidence Intervals\n(Optimal configurations for FGS and RGS)', 
+    ax.set_title('Degrees of Freedom by Sigma Level with 95% Confidence Intervals\n(Optimal configurations for gs and RGS)', 
                 fontsize=14)
     
     # Add legend
@@ -325,23 +325,23 @@ def plot_df_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     df = pd.read_csv(csv_path)
     
     # Create arrays to store optimal df values
-    optimal_fgs_df = []
+    optimal_gs_df = []
     optimal_rgs_df = []
     
     # For each row, get optimal configurations
     for idx in range(len(df)):
-        optimal_fgs_df.append(get_optimal_configuration(df, idx, 'pen_fgs_', 'df_fgs_'))
+        optimal_gs_df.append(get_optimal_configuration(df, idx, 'pen_gs_', 'df_gs_'))
         optimal_rgs_df.append(get_optimal_configuration(df, idx, 'pen_rgs_', 'df_rgs_'))
     
     # Add optimal values to dataframe
-    df['df_fgs_optimal'] = optimal_fgs_df
+    df['df_gs_optimal'] = optimal_gs_df
     df['df_rgs_optimal'] = optimal_rgs_df
     
     # Calculate proportion of variance explained
     df['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
     
     # Get df columns to plot
-    df_columns = ['df_lasso', 'df_ridge', 'df_elastic', 'df_fgs_optimal', 'df_rgs_optimal']
+    df_columns = ['df_lasso', 'df_ridge', 'df_elastic', 'df_gs_optimal', 'df_rgs_optimal']
     
     # Create figure
     plt.figure(figsize=(12, 8))
@@ -383,7 +383,7 @@ def plot_df_by_variance_explained(csv_path, norm_beta=10, save_path=None):
     # Customize plot
     plt.xlabel('Proportion of Variance Explained', fontsize=12)
     plt.ylabel('Degrees of Freedom', fontsize=12)
-    plt.title(f'Degrees of Freedom by Variance Explained (norm_beta={norm_beta})\n(Optimal configurations for FGS and RGS)', 
+    plt.title(f'Degrees of Freedom by Variance Explained (norm_beta={norm_beta})\n(Optimal configurations for gs and RGS)', 
               fontsize=14)
     
     # Add legend
@@ -438,9 +438,9 @@ def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     ax = fig.add_subplot(111)
     
     # Plot GS
-    fgs_cols = [col for col in df.columns if col.startswith('df_fgs_k')]
-    k_values = [extract_k_value(col) for col in fgs_cols]
-    df_values = filtered_df[fgs_cols].iloc[0]
+    gs_cols = [col for col in df.columns if col.startswith('df_gs_k')]
+    k_values = [extract_k_value(col) for col in gs_cols]
+    df_values = filtered_df[gs_cols].iloc[0]
     
     # Sort by k values
     k_df_pairs = sorted(zip(k_values, df_values))
@@ -513,7 +513,7 @@ def plot_df_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
 
 def plot_mse_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     """
-    Plot MSE vs k curves for FGS and RGS methods at a specific sigma value.
+    Plot MSE vs k curves for gs and RGS methods at a specific sigma value.
     
     Args:
         csv_path (str): Path to CSV file
@@ -538,22 +538,22 @@ def plot_mse_vs_k(csv_path, target_sigma, tolerance=1e-6, save_path=None):
     # Create two subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
-    # Plot FGS (left subplot)
-    fgs_cols = [col for col in df.columns if col.startswith('mse_fgs_k')]
-    k_values = [extract_k_value(col) for col in fgs_cols]
+    # Plot gs (left subplot)
+    gs_cols = [col for col in df.columns if col.startswith('mse_gs_k')]
+    k_values = [extract_k_value(col) for col in gs_cols]
     
-    mse_values = filtered_df[fgs_cols].iloc[0]
+    mse_values = filtered_df[gs_cols].iloc[0]
     
     # Sort by k values
     k_mse_pairs = sorted(zip(k_values, mse_values))
     k_values_sorted = [k for k, _ in k_mse_pairs]
     mse_values_sorted = [m for _, m in k_mse_pairs]
     
-    ax1.plot(k_values_sorted, mse_values_sorted, marker='o', linewidth=2, label='FGS')
+    ax1.plot(k_values_sorted, mse_values_sorted, marker='o', linewidth=2, label='gs')
     
     ax1.set_xlabel('k', fontsize=12)
     ax1.set_ylabel('Mean Square Error', fontsize=12)
-    ax1.set_title(f'FGS: MSE vs k (σ = {target_sigma})', fontsize=14)
+    ax1.set_title(f'gs: MSE vs k (σ = {target_sigma})', fontsize=14)
     ax1.grid(True)
     
     # Plot baseline methods

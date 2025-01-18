@@ -58,171 +58,155 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         Predict using the linear model for step k.
     """
 
-
-    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, random_state=None, cv=None):
-        # FastRandomizedGreedySelectionCV._validate_args(k_max, alpha, m, n_replications)
+    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, random_state=None, cv=5):
         self.k_max = k_max
         self.m_grid = m_grid
         self.n_replications = n_replications
         self.n_resample_iter = n_resample_iter
         self.random_state = random_state
-        if cv is None:
-            self.cv = KFold(n_splits=5, random_state=self.random_state)
-        else:
-            self.cv = cv
-        self.cv_scores_ = {k : {m : [] for m in m_grid} for k in range(1, k_max+1)}
+        self.cv = cv
+        self.cv_scores_ = None
+        
+    def _get_cv_splitter(self, X):
+        """Convert cv parameter to a cv splitter object."""
+        if isinstance(self.cv, int):
+            return KFold(n_splits=self.cv, shuffle=True, random_state=self.random_state)
+        return self.cv
 
     def fit(self, X, y):
-        # print("Starting cross-validation...")
-        for fold, (train_ids, val_ids) in enumerate(self.cv.split(X), 1):
-            # print(f"\nFold {fold}/{self.cv.n_splits}")
+        # Initialize scores dictionary
+        self.cv_scores_ = {k : {m : [] for m in self.m_grid} for k in range(1, self.k_max+1)}
+        
+        # Convert X and y to numpy arrays if they're pandas
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        if isinstance(y, pd.Series):
+            y = y.values
+            
+        # Get CV splitter
+        cv_splitter = self._get_cv_splitter(X)
+        
+        # Perform cross-validation
+        for fold, (train_ids, val_ids) in enumerate(cv_splitter.split(X), 1):
             X_train = X[train_ids]
             X_val = X[val_ids]
             y_train = y[train_ids]
             y_val = y[val_ids]
             self.fit_fold(X_train, y_train, X_val, y_val)
         
-        # print("\nMSE scores for each (k,m) combination:")
-        for k in range(1, self.k_max+1):
-            # print(f"\nk={k}:")
-            for m in self.m_grid:
-                mean_score = np.mean(self.cv_scores_[k][m])
-                std_score = np.std(self.cv_scores_[k][m])
-                # print(f"  m={m:2d}: {mean_score:.6f} ± {std_score:.6f}")
-        
         # Find best hyperparameters
-        # For each k, find best m and its score
         best_params = {}
         for k in range(1, self.k_max+1):
-            # Find m with minimum mean MSE for this k
             mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
             best_m = min(mean_scores.items(), key=lambda x: x[1])
             best_params[k] = {'m': best_m[0], 'score': best_m[1]}
-            # print(f"k={k}: best m={best_m[0]} with MSE={best_m[1]:.6f}")
         
         # Find k with lowest overall MSE
         self.k_ = min(best_params.items(), key=lambda x: x[1]['score'])[0]
         self.m_ = best_params[self.k_]['m']
         
-        # print(f"\nSelected k={self.k_}, m={self.m_} with MSE={best_params[self.k_]['score']:.6f}")
+        # Fit final model with best parameters on full dataset
+        self.final_fit(X, y, self.k_, self.m_)
+        
         return self
 
-    def fit_fold(self, X_train, y_train, X_val, y_val):
-        # print("\nStarting new fold...")
-        # Initialize
-        X_train, y_train = self._validate_training_inputs(X_train, y_train)
-        X_train = X_train.T  
-        X_val = X_val.T
-        X_centered = X_train - X_train.mean(axis=1, keepdims=True)
-        X_scaled = X_centered / np.sqrt(np.sum((X_train ** 2), axis=1, keepdims=True))
-        self.p = X_train.shape[0]
+    def final_fit(self, X, y, k, m):
+        """Fit final model with best parameters on full dataset."""
+        self.p = X.shape[1]
         generator = np.random.default_rng(self.random_state)
         
-        # print(f"Initialized with {self.p} features")
-        # print(f"m_grid: {self.m_grid}")
+        # Center and normalize X for correlation computation
+        X_centered = X - np.mean(X, axis=0, keepdims=True)
+        norms = np.sqrt(np.sum(X_centered ** 2, axis=0, keepdims=True))
+        norms[norms == 0] = 1  # Avoid division by zero
+        X_scaled = X_centered / norms
         
-        # Initialize feature sets for all k
-        self.feature_sets = [{} for _ in range(self.k_max + 1)]
+        # Initialize coefficients
+        self.coef_ = np.zeros(self.p)
         
-        # Initialize k=0 with empty set
-        for m in self.m_grid:
-            self.feature_sets[0][m] = Counter({frozenset(): self.n_replications})
+        # Iteratively select features
+        residuals = y.copy()
+        selected_features = set()
         
-        # print("\nInitializing k=1 based on correlations...")
-        # Initialize k=1 
-        residuals = y_train - y_train.mean()
-        correlations = np.abs(X_scaled @ residuals)
-        
-        # Initialize k=1 based on correlations
-        for m in self.m_grid:
-            feature_sets = {}
-            n_candidates = min(m, self.p)
-            candidates = generator.choice(range(self.p), size=n_candidates, replace=False)
-            psi = candidates[np.argmax(correlations[candidates])]
-            feature_sets[frozenset({psi})] = self.n_replications
-            self.feature_sets[1][m] = Counter(feature_sets)
-            # print(f"  m={m}: selected feature {psi}")
-        
-        self.coef_ = {m : [] for m in self.m_grid}
-        self.intercept_ = {m : [] for m in self.m_grid}
-
-        # Main loop
-        for k in range(1, self.k_max + 1):
-            # print(f"\nProcessing k={k}...")
-            feature_set_freqs = defaultdict(dict)
-            for m in self.m_grid:
-                Ms = list(self.feature_sets[k][m].keys())
-                freqs = list(self.feature_sets[k][m].values())
-                # print(f"  m={m}: current feature sets: {[list(M) for M in Ms]}")
-                
-                if len(Ms) > 0:
-                    Ms = [np.array(list(M), dtype=int) if len(M) > 0 else np.array([], dtype=int) for M in Ms]
-                    freqs = np.array(freqs)
-                    
-                    if self.n_resample_iter > 0:
-                        # print(f"    Resampling with {self.n_resample_iter} iterations")
-                        proportions = freqs / self.n_replications
-                        freqs = generator.multinomial(self.n_replications, proportions)
-                    Ms = [M for M, f in zip(Ms, freqs) if f > 0]
-                    freqs = freqs[freqs > 0]
-                    
-                    for M, freq in zip(Ms, freqs):
-                        feature_set_freqs[tuple(M)][m] = freq
-                        
-            coef_ = {m : np.zeros(self.p) for m in self.m_grid}  # Moved this initialization up
+        for _ in range(k):
+            # Compute correlations with residuals
+            correlations = np.abs(X_scaled.T @ residuals)
             
-            # Process each feature set
-            for M_tuple, freqs_dict in feature_set_freqs.items():
-                M = np.array(M_tuple)
-                # print(f"  Processing feature set: {M}")
+            # Select candidates
+            n_candidates = min(m, self.p - len(selected_features))
+            if n_candidates <= 0:
+                break
                 
-                if len(M) == 0:
-                    beta = np.array([])
-                    residuals = y_train - y_train.mean()
-                else:
-                    selected_features = X_centered[M, :]
-                    beta, _, _, _ = lstsq(selected_features.T, y_train)
-                    residuals = y_train - selected_features.T @ beta
-                
-                # Update coefficients
-                for m, freq in freqs_dict.items():
-                    if len(M) > 0:
-                        coef_[m][M] += beta * freq
-                        
-                if k < self.k_max:
-                    # Generate new feature sets
-                    mask = np.ones(self.p, dtype=bool)
-                    if len(M) > 0:
-                        mask[M] = False
-                    M_comp = np.arange(self.p)[mask]
-                    correlations = np.abs(X_scaled[M_comp, :] @ residuals)
-                    
-                    new_feature_sets = self._get_new_feature_sets(
-                        frozenset(M_tuple), M_comp, correlations, freqs_dict, generator
-                    )
-                    
-                    # Print new feature sets
-                    for m in self.m_grid:
-                        if m in new_feature_sets:
-                    #         print(f"    m={m}: new feature sets: {[list(M) for M in new_feature_sets[m].keys()]}")
-                            self.feature_sets[k+1][m] = new_feature_sets[m]
+            available_features = list(set(range(self.p)) - selected_features)
+            candidates = generator.choice(available_features, size=n_candidates, replace=False)
             
-            # Update parameters and compute CV scores
-            # print(f"\n  Computing CV scores for k={k}:")
-            for m in self.m_grid:
-                self.coef_[m].append(coef_[m] / self.n_replications)
-                self.intercept_[m].append(
-                    y_train.mean() - np.dot(X_train.mean(axis=1), coef_[m] / self.n_replications)
-                )
-                
-                y_preds = (X_val.T @ self.coef_[m][k-1]) + self.intercept_[m][k-1]
-                score = mean_squared_error(y_val, y_preds)
-                self.cv_scores_[k][m].append(score)
-                # print(f"    m={m}: MSE = {score:.6f}")
+            # Choose best feature
+            best_feature = candidates[np.argmax(correlations[candidates])]
+            selected_features.add(best_feature)
+            
+            # Update coefficients
+            selected_list = list(selected_features)
+            selected_X = X[:, selected_list]
+            beta, _, _, _ = lstsq(selected_X, y)
+            self.coef_[selected_list] = beta
+            
+            # Update residuals
+            residuals = y - X @ self.coef_
 
     def predict(self, X):
-        assert X.ndim == 2 and X.shape[1] == self.p
-        return X @ self.coef_[self.m_][self.k_] + self.intercept_[self.m_][self.k_]
+        """Make predictions using the fitted model."""
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        return X @ self.coef_
+    
+    def fit_fold(self, X_train, y_train, X_val, y_val):
+        """Fit model on a single cross-validation fold."""
+        self.p = X_train.shape[1]
+        generator = np.random.default_rng(self.random_state)
+        
+        # Scale X for correlation computation
+        norms = np.sqrt(np.sum(X_train ** 2, axis=0, keepdims=True))
+        norms[norms == 0] = 1  # Avoid division by zero
+        X_scaled = X_train / norms
+        
+        # Initialize coefficients for each m value
+        coef_ = {m: np.zeros((self.k_max, self.p)) for m in self.m_grid}
+        
+        # For each m value
+        for m in self.m_grid:
+            selected_features = set()
+            residuals = y_train.copy()
+            
+            # Iteratively select features
+            for k in range(self.k_max):
+                # Compute correlations with residuals
+                correlations = np.abs(X_scaled.T @ residuals)
+                
+                # Select candidates
+                n_candidates = min(m, self.p - len(selected_features))
+                if n_candidates <= 0:
+                    break
+                    
+                available_features = list(set(range(self.p)) - selected_features)
+                candidates = generator.choice(available_features, size=n_candidates, replace=False)
+                
+                # Choose best feature
+                best_feature = candidates[np.argmax(correlations[candidates])]
+                selected_features.add(best_feature)
+                
+                # Update coefficients
+                selected_list = list(selected_features)
+                selected_X = X_train[:, selected_list]
+                beta, _, _, _ = lstsq(selected_X, y_train)
+                coef_[m][k, selected_list] = beta
+                
+                # Compute validation score
+                y_val_pred = X_val @ coef_[m][k]
+                score = mean_squared_error(y_val, y_val_pred)
+                self.cv_scores_[k+1][m].append(score)
+                
+                # Update residuals
+                residuals = y_train - X_train @ coef_[m][k]
         
     @staticmethod
     def _validate_args(k, alpha, m, n_replications):
