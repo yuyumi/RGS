@@ -6,106 +6,8 @@ from sklearn.base import BaseEstimator, RegressorMixin, check_X_y
 from sklearn.linear_model import LinearRegression
 from scipy.linalg import lstsq
 from sklearn.preprocessing import StandardScaler
-
-
-class RandomizedGreedySelection(BaseEstimator, RegressorMixin):
-    """
-    Randomized Forward Selection (RFS) is a feature selection algorithm that selects a subset of features
-    based on their correlation with the target variable. RFS randomly selects a fixed number of candidate features
-    at each iteration and chooses the feature with the highest correlation with the residuals. This process is
-    repeated for a specified number of iterations to build an ensemble of linear regression models.
-
-    Parameters:
-    -----------
-    k : int
-        The number of features to select.
-
-    alpha : float, optional (default=None)
-        The fraction of features to randomly select as candidates at each iteration.
-        Either `alpha` or `m` should be provided.
-
-    m : int, optional (default=None)
-        The fixed number of features to randomly select as candidates at each iteration.
-        Either `alpha` or `m` should be provided.
-
-    n_estimators : int, optional (default=1000)
-        The number of linear regression models to build.
-
-    random_state : int or None, optional (default=None)
-        Seed for the random number generator.
-
-    Attributes:
-    -----------
-    estimators : list
-        A list of dictionaries, where each dictionary contains the selected features and the corresponding
-        linear regression model.
-
-    Methods:
-    --------
-    fit(X, y)
-        Fit the RFS model to the training data.
-
-    predict(X)
-        Predict the target variable for the input data.
-
-    """
-
-    def __init__(self, k, alpha=None, m=None, n_estimators=1000, random_state=None):
-        RandomizedGreedySelection._validate_args(k, alpha, m, n_estimators)
-        self.k = k
-        self.alpha = alpha
-        self.m = m
-        self.n_estimators = n_estimators
-        self.random_state = random_state
-
-    def fit(self, X, y):
-        self._validate_training_inputs(X, y)
-        self.preprocessor = StandardScaler()
-        X_scaled = self.preprocessor.fit_transform(X)
-        _, self.p = X_scaled.shape
-        generator = np.random.default_rng(self.random_state)
-        self.estimators = []
-        for _ in range(self.n_estimators):
-            selected = []
-            residuals = y.copy()
-            for _ in range(self.k):
-                # Randomly choose m candidate features
-                candidates = generator.choice([i for i in range(self.p) if i not in selected], 
-                                              size=min(self.m, self.p - len(selected)), replace=False)
-                # Calculate correlations between candidates and residual
-                correlations = np.abs(X_scaled[:,candidates].T @ residuals)
-                best_feature = candidates[np.argmax(correlations)]
-                selected.append(best_feature)
-                X_subset = X_scaled[:, selected]
-                lr = LinearRegression().fit(X_subset, y)
-                residuals = y - lr.predict(X_subset)  # Update residual
-            self.estimators.append(({"selected": selected,
-                                     "lr" : lr}))
-
-    def predict(self, X):
-        assert X.ndim == 2 and X.shape[1] == self.p
-        X_scaled = self.preprocessor.transform(X)
-        return np.mean([estimator["lr"].predict(X_scaled[:, estimator["selected"]]) for 
-                        estimator in self.estimators], axis=0)
-        
-    @staticmethod
-    def _validate_args(k, alpha, m, n_estimators):
-        assert isinstance(k, int) and k > 0
-        assert isinstance(n_estimators, int) and n_estimators > 0
-        assert alpha is None or m is None
-        if alpha is not None:
-            assert 0 < alpha <= 1
-        else:
-            assert isinstance(m, int) and m > 0
-
-    def _validate_training_inputs(self, X, y):
-        check_X_y(X, y)
-        _, p = X.shape
-        assert self.k <= p
-        if self.m is None:
-            self.m = np.ceil(self.alpha * p)
-        assert self.m <= p
-
+from sklearn.model_selection import KFold
+from sklearn.metrics import mean_squared_error
 
 class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
     """
@@ -248,14 +150,103 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
         M_new_unique = [frozenset(set(M) | {feat}) for feat in psi_vals_unique]
         M_new_freqs = Counter(dict(zip(M_new_unique, psi_freqs[psi_vals_unique])))
         return M_new_freqs
+
+class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
+    """
+    Cross-validation wrapper for FastRandomizedGreedySelection.
     
-    # def fit_stability(self):
-    #     self.stability_scores = np.zeros(self.k_max + 1)
-    #     for k in range(1, self.k_max + 1):
-    #         score = 0
-    #         for M1, freq1 in self.feature_sets[k].items():
-    #             for M2, freq2 in self.feature_sets[k].items():
-    #                 score += (k - len(M1 & M2)) * freq1 * freq2
-    #         score = score / (self.n_estimators ** 2)
-    #         self.stability_scores[k] = score
-    #     return self.stability_scores
+    Parameters
+    ----------
+    k_max : int
+        The maximum number of features to select.
+    
+    m_grid : list of int
+        Grid of m values to try, where m is the number of candidates
+        to randomly select at each iteration.
+    
+    n_replications : int, default=1000
+        Number of replications for the ensemble.
+        
+    n_resample_iter : int, default=0
+        Number of resampling iterations.
+        
+    random_state : int or None, default=None
+        Random number generator seed.
+        
+    cv : int, default=5
+        Number of cross-validation folds.
+    """
+    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, random_state=None, cv=5):
+        self.k_max = k_max
+        self.m_grid = m_grid
+        self.n_replications = n_replications
+        self.n_resample_iter = n_resample_iter
+        self.random_state = random_state
+        self.cv = cv
+        
+    def fit(self, X, y):
+        # Initialize scores dictionary
+        self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
+                          for k in range(1, self.k_max + 1)}
+        
+        # Convert inputs if needed
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        if isinstance(y, pd.Series):
+            y = y.values
+            
+        # Setup CV splitter
+        cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
+                           random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+        
+        # Perform CV
+        for train_idx, val_idx in cv_splitter.split(X):
+            X_train, X_val = X[train_idx], X[val_idx]
+            y_train, y_val = y[train_idx], y[val_idx]
+            
+            # Try each m value
+            for m in self.m_grid:
+                # Create and fit RGS model
+                model = FastRandomizedGreedySelection(
+                    k_max=self.k_max,
+                    m=m,
+                    n_estimators=self.n_replications,
+                    n_resample_iter=self.n_resample_iter,
+                    random_state=self.random_state
+                )
+                model.fit(X_train, y_train)
+                
+                # Evaluate for each k
+                for k in range(1, self.k_max + 1):
+                    y_pred = model.predict(X_val, k=k)
+                    score = mean_squared_error(y_val, y_pred)
+                    self.cv_scores_[k][m].append(score)
+        
+        # Find best parameters
+        best_params = {}
+        for k in range(1, self.k_max + 1):
+            mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
+            best_m = min(mean_scores.items(), key=lambda x: x[1])[0]
+            best_params[k] = {'m': best_m, 'score': mean_scores[best_m]}
+        
+        # Find optimal k
+        self.k_ = min(best_params.items(), key=lambda x: x[1]['score'])[0]
+        self.m_ = best_params[self.k_]['m']
+        
+        # Fit final model with best parameters
+        self.model_ = FastRandomizedGreedySelection(
+            k_max=self.k_,
+            m=self.m_,
+            n_estimators=self.n_replications,
+            n_resample_iter=self.n_resample_iter,
+            random_state=self.random_state
+        )
+        self.model_.fit(X, y)
+        
+        return self
+    
+    def predict(self, X):
+        """Make predictions using the fitted model with best parameters."""
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        return self.model_.predict(X, k=self.k_)
