@@ -26,7 +26,7 @@ def generate_banded_X(n_predictors=250, n_train=2000, seed=123):
     Each block is transformed by a different random orthogonal matrix.
     """
     np.random.seed(seed)
-    gamma = 0.5
+    gamma = 0.65
     
     # Create correlation matrix
     indices = np.arange(n_predictors)
@@ -83,7 +83,7 @@ def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=25, seed=12
 
     return X, y, y_true, beta, p, sigma
 
-def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=25, eta=0.1, seed=123):
+def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=25, eta=0.2, seed=123):
     """
     Generate response variable with inexact sparsity structure controlled by eta.
     First p*signal_proportion coefficients are strong signals (magnitude 1),

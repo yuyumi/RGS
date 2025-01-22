@@ -5,48 +5,70 @@ import seaborn as sns
 from scipy import stats
 from datetime import datetime
 
-def get_optimal_configuration(df, row_idx, pen_prefix, mse_prefix):
-    """Get the optimal MSE value based on minimum penalty score for a given row"""
+def get_optimal_mse_vectorized(df, pen_prefix, mse_prefix):
+    """Vectorized version of get_optimal_configuration"""
+    # Get penalty and MSE columns once
     pen_cols = [col for col in df.columns if col.startswith(pen_prefix)]
     
-    # Get penalty scores for this row
-    penalties = {col: df.iloc[row_idx][col] for col in pen_cols}
+    # Find minimum penalty for each row at once
+    min_pen_cols = df[pen_cols].idxmin(axis=1)
     
-    # Find configuration with minimum penalty
-    min_pen_col = min(penalties.items(), key=lambda x: x[1])[0]
+    # Convert penalty column names to MSE column names
+    mse_cols = [mse_prefix + col[len(pen_prefix):] for col in min_pen_cols]
     
-    # Get corresponding MSE column
-    config_suffix = min_pen_col.replace(pen_prefix, '')
-    mse_col = mse_prefix + config_suffix
+    # Get MSE values for optimal configurations
+    optimal_mse = pd.Series(index=df.index)
+    for idx, mse_col in enumerate(mse_cols):
+        optimal_mse.iloc[idx] = df.iloc[idx][mse_col]
     
-    return df.iloc[row_idx][mse_col]
+    return optimal_mse
 
 def plot_mse_by_sigma(csv_path, save_path=None):
-    # Read the CSV file
+    """Plot MSE vs sigma for different methods, using optimal configurations"""
+    # Read CSV file
     df = pd.read_csv(csv_path)
     
-    # Create arrays to store optimal MSE values
+    # Get parameters for each noise level
+    noise_levels = df['noise_level'].unique()
     optimal_gs_mse = []
     optimal_rgs_mse = []
     
-    # For each row, get optimal configurations
-    for idx in range(len(df)):
-        optimal_gs_mse.append(get_optimal_configuration(df, idx, 'pen_gs_', 'mse_gs_'))
-        optimal_rgs_mse.append(get_optimal_configuration(df, idx, 'pen_rgs_', 'mse_rgs_'))
+    # For each noise level, get the optimal MSE values
+    for noise_level in noise_levels:
+        noise_data = df[df['noise_level'] == noise_level]
+        
+        # Find best GS k value based on penalized
+        gs_mse_cols = [col for col in noise_data.columns if col.startswith('pen_gs_k')]
+        best_gs_col = min(gs_mse_cols, key=lambda x: noise_data[x].mean())
+        best_gs_k = int(best_gs_col.replace('pen_gs_k', ''))
+        best_gs_mse = noise_data[f'mse_gs_k{best_gs_k}'].mean()
+        optimal_gs_mse.append(best_gs_mse)
+        
+        # Find best RGS m and k values based on penalized
+        rgs_mse_cols = [col for col in noise_data.columns if col.startswith('pen_rgs_m')]
+        best_rgs_col = min(rgs_mse_cols, key=lambda x: noise_data[x].mean())
+        # Extract m and k values using string replacement
+        col_parts = best_rgs_col.replace('pen_rgs_m', '').split('_k')
+        m_val = int(col_parts[0])
+        k_val = int(col_parts[1])
+        best_rgs_mse = noise_data[f'mse_rgs_m{m_val}_k{k_val}'].mean()
+        optimal_rgs_mse.append(best_rgs_mse)
     
-    # Add optimal values to dataframe
-    df['mse_gs_optimal'] = optimal_gs_mse
-    df['mse_rgs_optimal'] = optimal_rgs_mse
-    
-    # Get final MSE columns to plot
-    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_gs_optimal', 'mse_rgs_optimal']
+    # Create plotting DataFrame
+    plot_df = pd.DataFrame({
+        'sigma': [float(level.split('_')[1]) for level in noise_levels],
+        'mse_gs_optimal': optimal_gs_mse,
+        'mse_rgs_optimal': optimal_rgs_mse,
+        'mse_lasso': df.groupby('noise_level')['mse_lasso'].mean().values,
+        'mse_ridge': df.groupby('noise_level')['mse_ridge'].mean().values,
+        'mse_elastic': df.groupby('noise_level')['mse_elastic'].mean().values
+    })
     
     # Create figure
-    sns.set_style("white")  # Remove gridlines
-    fig = plt.figure(figsize=(8, 5))
-    ax = fig.add_subplot(111)
+    sns.set_style("white")
+    fig, ax = plt.subplots(figsize=(8, 5))
     
-    # Create color palette - optimized for both color and B&W printing
+    # Colors optimized for both color and B&W printing
     colors = ['#E69F00',   # orange
               '#56B4E9',   # light blue
               '#009E73',   # green
@@ -54,65 +76,33 @@ def plot_mse_by_sigma(csv_path, save_path=None):
               '#0072B2']   # dark blue
     
     # Plot each method
+    mse_columns = ['mse_lasso', 'mse_ridge', 'mse_elastic', 'mse_gs_optimal', 'mse_rgs_optimal']
+    
     for i, mse_col in enumerate(mse_columns):
-        # Calculate statistics for each sigma
-        stats_df = df.groupby('sigma').agg({
-            mse_col: ['mean', 'std', 'count']
-        }).reset_index()
-        
-        # Extract values from multi-index columns and convert to numpy arrays
-        sigma_values = stats_df['sigma'].to_numpy()
-        mean_values = stats_df[(mse_col, 'mean')].to_numpy()
-        std_values = stats_df[(mse_col, 'std')].to_numpy()
-        count_values = stats_df[(mse_col, 'count')].to_numpy()
-        
-        # Calculate standard error
-        se_values = std_values / np.sqrt(count_values)
-        
-        # Create label
         label = mse_col.replace('mse_', '').replace('_optimal', '').upper()
-        
-        # Plot mean line with error bars
-        ax.errorbar(sigma_values, mean_values,
-                    yerr=1.96 * se_values,
-                    marker='o',
-                    color=colors[i],
-                    label=label,
-                    capsize=3,
-                    capthick=1,
-                    elinewidth=1,
-                    alpha=0.6,
-                    zorder=1)
-        # Plot the main line again on top to ensure it's solid
-        ax.plot(sigma_values, mean_values,
+        ax.plot(plot_df['sigma'], plot_df[mse_col],
                 marker='o',
                 color=colors[i],
-                zorder=2)
-        
-        # Set log scale for y-axis
-        plt.yscale('log')
-
-    # Customize plot
-    plt.xlabel('Sigma (Noise Level)', fontsize=12)
-    plt.ylabel('Mean Square Error', fontsize=12)
-    plt.title('Mean Square Error by Sigma Level with 95% Confidence Intervals\n(Optimal configurations for gs and RGS)', fontsize=14)
+                label=label)
+    
+    # Set log scale and customize plot
+    ax.set_yscale('log')
+    ax.set_xlabel('Sigma (Noise Level)', fontsize=12)
+    ax.set_ylabel('Mean Square Error', fontsize=12)
+    ax.set_title('Mean Square Error by Sigma Level\n(Optimal configurations for GS and RGS)', 
+                fontsize=14)
     
     # Add legend
-    plt.legend(bbox_to_anchor=(1.05, 1), 
-              loc='upper left', 
-              fontsize=10)
+    ax.legend(bbox_to_anchor=(1.05, 1), 
+             loc='upper left', 
+             fontsize=10)
     
     # Adjust layout
     plt.tight_layout()
     
-    fig = plt.gcf()
-    
-    # Save the figure if a save path is provided
-    if save_path is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"../figures/mse_by_sigma_{timestamp}.png"
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    # Save if path provided
+    if save_path is not None:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
     
     return fig
 

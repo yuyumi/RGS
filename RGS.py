@@ -9,9 +9,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 
-class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
+class RGS(BaseEstimator, RegressorMixin):
     """
-    FastRandomizedGreedySelection is a feature selection algorithm that selects a subset of features
+    RGS is a feature selection algorithm that selects a subset of features
     based on their correlation with the target variable. RGS randomly selects a fixed number of candidate features
     at each iteration and chooses the feature with the highest correlation with the residuals. This process is
     repeated for a specified number of iterations to build an ensemble of linear regression models.
@@ -60,7 +60,7 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
 
 
     def __init__(self, k_max, alpha=None, m=None, n_estimators=1000, n_resample_iter=0, random_state=None):
-        FastRandomizedGreedySelection._validate_args(k_max, alpha, m, n_estimators)
+        RGS._validate_args(k_max, alpha, m, n_estimators)
         self.k_max = k_max
         self.alpha = alpha
         self.m = m
@@ -151,9 +151,9 @@ class FastRandomizedGreedySelection(BaseEstimator, RegressorMixin):
         M_new_freqs = Counter(dict(zip(M_new_unique, psi_freqs[psi_vals_unique])))
         return M_new_freqs
 
-class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
+class RGSCV(BaseEstimator, RegressorMixin):
     """
-    Cross-validation wrapper for FastRandomizedGreedySelection.
+    Cross-validation wrapper for RGS.
     
     Parameters
     ----------
@@ -207,7 +207,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
             # Try each m value
             for m in self.m_grid:
                 # Create and fit RGS model
-                model = FastRandomizedGreedySelection(
+                model = RGS(
                     k_max=self.k_max,
                     m=m,
                     n_estimators=self.n_replications,
@@ -234,7 +234,7 @@ class FastRandomizedGreedySelectionCV(BaseEstimator, RegressorMixin):
         self.m_ = best_params[self.k_]['m']
         
         # Fit final model with best parameters
-        self.model_ = FastRandomizedGreedySelection(
+        self.model_ = RGS(
             k_max=self.k_,
             m=self.m_,
             n_estimators=self.n_replications,
