@@ -203,3 +203,342 @@
 #     print(f"Summary saved to simulation_summary_{timestamp}.csv")
     
 #     return results_df, summary
+
+# import numpy as np
+# import pandas as pd
+# import time
+# import multiprocessing
+# import psutil
+# import warnings
+# from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
+# from sklearn.metrics import mean_squared_error
+# from IPython.display import clear_output
+# from concurrent.futures import ProcessPoolExecutor
+# from multiprocessing import shared_memory
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# from typing import Dict, List, Tuple, Optional, Union
+# import os
+# from datetime import datetime
+
+
+# class ProgressDisplay:
+#     """Enhanced progress display with ETA and memory usage tracking"""
+#     def __init__(self, total, desc="Progress"):
+#         self.total = total
+#         self.desc = desc
+#         self.current = 0
+#         self.start_time = time.time()
+#         self._last_update = 0
+#         self.update_interval = 0.1  # seconds
+        
+#     def update(self, n=1):
+#         self.current += n
+#         current_time = time.time()
+#         if current_time - self._last_update >= self.update_interval:
+#             self._display_progress()
+#             self._last_update = current_time
+        
+#     def _display_progress(self):
+#         clear_output(wait=True)
+#         percentage = (self.current / self.total) * 100
+#         elapsed_time = time.time() - self.start_time
+#         rate = self.current / elapsed_time if elapsed_time > 0 else 0
+#         eta = (self.total - self.current) / rate if rate > 0 else 0
+        
+#         # Memory usage (if psutil is available)
+#         try:
+#             import psutil
+#             process = psutil.Process()
+#             memory_usage = process.memory_info().rss / 1024 / 1024  # MB
+#             memory_info = f", Memory: {memory_usage:.1f}MB"
+#         except ImportError:
+#             memory_info = ""
+        
+#         progress_bar = f"[{'=' * int(percentage/2)}{' ' * (50-int(percentage/2))}]"
+#         print(f"{self.desc}: {progress_bar} {percentage:.1f}%")
+#         print(f"Progress: {self.current}/{self.total}")
+#         print(f"Elapsed: {elapsed_time:.1f}s, ETA: {eta:.1f}s, Rate: {rate:.1f} it/s{memory_info}")
+
+# def _run_single_simulation(args):
+#     """Helper function for parallel processing"""
+#     (sim, noise_level, generator, X_shape, X_dtype, shm_name, 
+#      m_values, k_max, k_values, n_train, signal_proportion, sigmas) = args
+    
+#     try:
+#         # Get X from shared memory
+#         existing_shm = shared_memory.SharedMemory(name=shm_name)
+#         X = np.ndarray(X_shape, dtype=X_dtype, buffer=existing_shm.buf)
+        
+#         # Rest of your original function
+#         X, y, y_true, beta_true, p, sigma = generator(X, signal_proportion, 
+#                                                      sigmas[noise_level], seed=sim)
+        
+#         # Fit models and compute metrics
+#         results = []
+        
+#         with warnings.catch_warnings():
+#             warnings.filterwarnings('ignore')
+            
+#             # Baseline models
+#             models = {
+#                 'lasso': LassoCV(cv=5, random_state=sim),
+#                 'ridge': RidgeCV(cv=5),
+#                 'elastic': ElasticNetCV(cv=5, random_state=sim)
+#             }
+            
+#             base_metrics = {}
+#             for name, model in models.items():
+#                 model.fit(X, y)
+#                 y_pred = model.predict(X)
+#                 base_metrics.update({
+#                     f'mse_{name}': mean_squared_error(y_true, y_pred),
+#                     f'df_{name}': calculate_df(y, y_true, y_pred, n_train, sigma),
+#                     f'coef_recovery_{name}': np.mean((model.coef_ - beta_true)**2),
+#                     f'support_recovery_{name}': np.mean((np.abs(model.coef_) > 1e-10) == (beta_true != 0))
+#                 })
+            
+#             # GS model
+#             gs = RGS(k_max=k_max, m=n_predictors, n_resample_iter=7)
+#             gs.fit(X, y)
+#             for k in k_values:
+#                 y_pred_gs = gs.predict(X, k=k)
+#                 base_metrics.update({
+#                     f'mse_gs_k{k}': mean_squared_error(y_true, y_pred_gs),
+#                     f'df_gs_k{k}': calculate_df(y, y_true, y_pred_gs, n_train, sigma),
+#                     f'pen_gs_k{k}': compute_penalized_score(gs, X, y_true, k, sigma, n_train, p),
+#                     f'coef_recovery_gs_k{k}': np.mean((gs.coef_[k] - beta_true)**2),
+#                     f'support_recovery_gs_k{k}': np.mean((np.abs(gs.coef_[k]) > 1e-10) == (beta_true != 0))
+#                 })
+            
+#             # RGS models
+#             for m in m_values:
+#                 rgs = RGS(k_max=k_max, m=m, n_resample_iter=7)
+#                 rgs.fit(X, y)
+                
+#                 for k in range(1, k_max + 1):
+#                     y_pred = rgs.predict(X, k=k)
+#                     result = {
+#                         'simulation': sim,
+#                         'noise_level': f'sigma_{sigmas[noise_level]}',
+#                         'm': m,
+#                         'k': k,
+#                         'sigma': sigma,
+#                         **base_metrics,
+#                         f'mse_rgs_m{m}_k{k}': mean_squared_error(y_true, y_pred),
+#                         f'df_rgs_m{m}_k{k}': calculate_df(y, y_true, y_pred, n_train, sigma),
+#                         f'pen_rgs_m{m}_k{k}': compute_penalized_score(rgs, X, y_true, k, sigma, n_train, p),
+#                         f'coef_recovery_rgs_m{m}_k{k}': np.mean((rgs.coef_[k] - beta_true)**2),
+#                         f'support_recovery_rgs_m{m}_k{k}': np.mean((np.abs(rgs.coef_[k]) > 1e-10) == (beta_true != 0))
+#                     }
+#                     results.append(result)
+                    
+#         return results
+    
+#     except Exception as e:
+#         print(f"Error in simulation {sim}, noise_level {noise_level}: {str(e)}")
+#         return []
+#     finally:
+#         # Clean up shared memory in worker
+#         existing_shm.close()
+
+# def run_simulation(n_predictors=500, n_train=2000, signal_proportion=0.02, 
+#                   cov='orthogonal', n_sim=10, n_jobs=-1):
+#     """Run simulation with optimal CPU utilization.
+    
+#     Parameters
+#     ----------
+#     n_predictors : int, default=500
+#         Number of predictor variables
+#     n_train : int, default=2000
+#         Number of training samples
+#     signal_proportion : float, default=0.02
+#         Proportion of relevant features
+#     cov : str or callable, default='orthogonal'
+#         Covariance structure ('orthogonal' or 'banded') or custom generator
+#     n_sim : int, default=10
+#         Number of simulation repetitions
+#     n_jobs : int, optional
+#         Number of parallel jobs. If None, automatically determined.
+#         If -1, uses all CPU cores except one.
+#     """
+#     # Determine optimal number of workers
+#     if n_jobs is None:
+#         n_jobs = get_optimal_workers()
+#     elif n_jobs == -1:
+#         n_jobs = max(1, multiprocessing.cpu_count() - 1)
+    
+#     print(f"Running simulation with {n_jobs} parallel workers")
+#     """Run simulation finding optimal (m,k) pairs with parallel processing.
+    
+#     Parameters
+#     ----------
+#     n_predictors : int, default=500
+#         Number of predictor variables
+#     n_train : int, default=2000
+#         Number of training samples
+#     signal_proportion : float, default=0.02
+#         Proportion of relevant features
+#     cov : str or callable, default='orthogonal'
+#         Covariance structure ('orthogonal' or 'banded') or custom generator
+#     n_sim : int, default=10
+#         Number of simulation repetitions
+#     n_jobs : int, default=-1
+#         Number of parallel jobs (-1 for all cores)
+    
+#     Returns
+#     -------
+#     tuple
+#         (results_df, summary_df) containing detailed and summarized results
+#     """
+#     start_time = time.time()
+    
+#     # Generate base design matrix
+#     X_generators = {
+#         'orthogonal': generate_orthogonal_X,
+#         'banded': generate_banded_X
+#     }
+#     X_generator = X_generators[cov] if isinstance(cov, str) else cov
+#     X = X_generator(n_predictors, n_train)
+
+#     # Create shared memory for X
+#     shm = shared_memory.SharedMemory(create=True, size=X.nbytes)
+#     # Create a NumPy array backed by shared memory
+#     X_shared = np.ndarray(X.shape, dtype=X.dtype, buffer=shm.buf)
+#     # Copy the data
+#     X_shared[:] = X[:]
+
+#     # Define noise levels
+#     sigma_dict = {
+#         'orthogonal': [1, 3, 5, 10, 15],
+#         'banded': [0.2, 1, 3, 5, 10]
+#     }
+#     sigmas = sigma_dict[cov]
+#     example_generators = {i: generate_laplace_example for i in range(len(sigmas))}
+    
+#     # Define parameter grids
+#     k_values = [1, 4, 7, 10, 15, 20, 25]
+#     base = 2
+#     num_points = 7
+#     m_values = [int(2 + (n_predictors-2) * (base**x - 1)/(base**(num_points-1) - 1)) 
+#                 for x in range(num_points)]
+#     k_max = 35
+    
+#     # Create shared memory for X
+#     shm = shared_memory.SharedMemory(create=True, size=X.nbytes)
+#     X_shared = np.ndarray(X.shape, dtype=X.dtype, buffer=shm.buf)
+#     X_shared[:] = X[:]
+
+#     try:
+#         # Modify args_list to pass the shared memory name
+#         args_list = [(sim, noise_level, generator, X_shared.shape, X_shared.dtype, 
+#                      shm.name, m_values, k_max, k_values, n_train, 
+#                      signal_proportion, sigmas)
+#                     for sim in range(n_sim)
+#                     for noise_level, generator in example_generators.items()]
+        
+#         # Run simulations in parallel
+#         all_results = []
+#         with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+#             for results in executor.map(_run_single_simulation, args_list):
+#                 all_results.extend(results)
+#                 progress.update()
+        
+#         # Convert to DataFrame and compute summary
+#         results_df = pd.DataFrame(all_results)
+#         summary = compute_summary_statistics(results_df)
+        
+#         # Save results
+#         timestamp = time.strftime("%Y%m%d_%H%M%S")
+#         results_df.to_csv(f'simulation_results_{timestamp}.csv', index=False)
+#         summary.to_csv(f'simulation_summary_{timestamp}.csv')
+        
+#         print(f"\nSimulation completed in {(time.time() - start_time)/60:.1f} minutes")
+        
+#         return results_df, summary
+        
+#     finally:
+#         # Clean up shared memory
+#         shm.close()
+#         shm.unlink()
+
+# def compute_summary_statistics(results_df):
+#     """Compute summary statistics for simulation results."""
+#     # Basic metrics (lasso, ridge, elastic)
+#     basic_metrics = ['mse', 'df', 'coef_recovery', 'support_recovery']
+#     basic_methods = ['lasso', 'ridge', 'elastic']
+    
+#     summary_metrics = {}
+    
+#     # Basic methods
+#     for method in basic_methods:
+#         for metric in basic_metrics:
+#             col = f'{metric}_{method}'
+#             if col in results_df.columns:
+#                 summary_metrics[col] = ['mean', 'std', 'min', 'max']
+    
+#     # RGS metrics
+#     m_values = results_df['m'].unique()
+#     k_values = results_df['k'].unique()
+    
+#     for m in m_values:
+#         for k in k_values:
+#             metrics = ['mse', 'df', 'pen', 'coef_recovery', 'support_recovery']
+#             for metric in metrics:
+#                 col = f'{metric}_rgs_m{m}_k{k}'
+#                 if col in results_df.columns:
+#                     summary_metrics[col] = ['mean', 'std', 'min', 'max']
+    
+#     # GS metrics
+#     for k in k_values:
+#         metrics = ['mse', 'df', 'pen', 'coef_recovery', 'support_recovery']
+#         for metric in metrics:
+#             col = f'{metric}_gs_k{k}'
+#             if col in results_df.columns:
+#                 summary_metrics[col] = ['mean', 'std', 'min', 'max']
+    
+#     return results_df.groupby(['noise_level', 'm', 'k']).agg(summary_metrics).round(4)
+
+# def plot_optimal_mk(results_df, metric='mse_rgs', title=None):
+#     """Enhanced plotting function for optimal (m,k) pairs.
+    
+#     Parameters
+#     ----------
+#     results_df : pd.DataFrame
+#         Simulation results
+#     metric : str, default='mse_rgs'
+#         Metric to optimize ('mse_rgs', 'pen_rgs', etc.)
+#     title : str, optional
+#         Custom plot title
+    
+#     Returns
+#     -------
+#     matplotlib.figure.Figure
+#         Plot figure
+#     """
+#     import matplotlib.pyplot as plt
+#     import seaborn as sns
+    
+#     plt.figure(figsize=(12, 6))
+#     sns.set_style("whitegrid")
+    
+#     # Find optimal k for each m and noise level
+#     optimal_k = results_df.groupby(['noise_level', 'm'])[metric].idxmin()
+#     optimal_params = results_df.loc[optimal_k, ['noise_level', 'm', 'k']]
+    
+#     # Plot with error bars
+#     for noise_level in optimal_params['noise_level'].unique():
+#         data = optimal_params[optimal_params['noise_level'] == noise_level]
+#         mean_k = data.groupby('m')['k'].mean()
+#         std_k = data.groupby('m')['k'].std()
+        
+#         plt.errorbar(mean_k.index, mean_k.values, yerr=std_k.values,
+#                     label=noise_level, marker='o', capsize=5)
+    
+#     plt.xlabel('Number of Candidates (m)')
+#     plt.ylabel('Optimal k')
+#     plt.title(title or f'Optimal k vs m for Different Noise Levels\nOptimized for {metric}')
+#     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+#     plt.tight_layout()
+    
+#     return plt.gcf()

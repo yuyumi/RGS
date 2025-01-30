@@ -72,6 +72,86 @@ def generate_banded_X(n_predictors=250, n_train=2000, seed=123):
     
     return X
 
+def generate_block_X(n_predictors=250, n_train=2000, block_size=50, within_correlation=0.7, seed=123):
+    """
+    Generate a design matrix X with block correlation structure.
+    Predictors within the same block have specified correlation, while 
+    predictors in different blocks are uncorrelated.
+    
+    Parameters:
+    -----------
+    n_predictors : int
+        Number of predictor variables
+    n_train : int
+        Number of training samples
+    block_size : int
+        Size of each correlation block
+    within_correlation : float
+        Correlation coefficient for variables within the same block
+    seed : int
+        Random seed for reproducibility
+        
+    Returns:
+    --------
+    X : ndarray
+        Design matrix with block correlation structure
+    """
+    np.random.seed(seed)
+    
+    # Verify parameters
+    if n_predictors % block_size != 0:
+        raise ValueError("n_predictors must be divisible by block_size")
+    
+    n_blocks = n_predictors // block_size
+    
+    # Create block correlation matrix
+    gram_matrix = np.zeros((n_predictors, n_predictors))
+    for i in range(n_blocks):
+        start_idx = i * block_size
+        end_idx = (i + 1) * block_size
+        block = np.ones((block_size, block_size)) * within_correlation
+        np.fill_diagonal(block, 1.0)  # Set diagonal to 1
+        gram_matrix[start_idx:end_idx, start_idx:end_idx] = block
+    
+    # Compute eigendecomposition
+    eigenvals, eigenvecs = np.linalg.eigh(gram_matrix)
+    
+    if np.any(eigenvals < -1e-10):
+        raise ValueError("Correlation matrix has negative eigenvalues")
+    
+    # Create base matrix with desired covariance
+    X_base = eigenvecs @ np.diag(np.sqrt(np.abs(eigenvals))) @ eigenvecs.T
+    
+    n_per_batch = n_predictors
+    n_full_repeats = n_train // n_per_batch
+    remainder = n_train % n_per_batch
+    
+    # Create the repeated structure
+    X = np.zeros((n_train, n_predictors))
+    
+    # Fill in full blocks
+    for i in range(n_full_repeats):
+        Q = ortho_group.rvs(n_per_batch)
+        start_idx = i * n_per_batch
+        end_idx = (i + 1) * n_per_batch
+        X[start_idx:end_idx] = Q @ X_base
+    
+    # Handle remainder if any
+    if remainder > 0:
+        Q = ortho_group.rvs(n_per_batch)
+        start_idx = n_full_repeats * n_per_batch
+        X[start_idx:] = (Q @ X_base)[:remainder]
+    
+    # Scale to match target covariance
+    X = X * np.sqrt(n_predictors/n_train)
+    
+    # Verify gram matrix structure
+    realized_gram = X.T @ X
+    max_diff = np.max(np.abs(realized_gram - gram_matrix))
+    print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
+    
+    return X
+
 def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=25, seed=123):
     np.random.seed(seed)
     n_train,p = X.shape
