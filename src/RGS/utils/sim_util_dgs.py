@@ -1,7 +1,18 @@
 import numpy as np
 from scipy.stats import ortho_group
 
-def generate_orthogonal_X(n_predictors = 250, n_train=2000, seed=123):
+__all__ = [
+    'generate_orthogonal_X',
+    'generate_banded_X',
+    'generate_block_X',
+    'generate_exact_sparsity_example',
+    'generate_inexact_sparsity_example',
+    'generate_nonlinear_example',
+    'generate_laplace_example',
+    'generate_cauchy_example'
+]
+
+def generate_orthogonal_X(n_predictors=500, n_train=2000, seed=123):
     """
     Generate the base design matrix X that will remain fixed across replications.
     """
@@ -20,7 +31,7 @@ def generate_orthogonal_X(n_predictors = 250, n_train=2000, seed=123):
     
     return X
 
-def generate_banded_X(n_predictors=250, n_train=2000, seed=123):
+def generate_banded_X(n_predictors=500, n_train=2000, seed=123):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
     Each block is transformed by a different random orthogonal matrix.
@@ -72,29 +83,9 @@ def generate_banded_X(n_predictors=250, n_train=2000, seed=123):
     
     return X
 
-def generate_block_X(n_predictors=250, n_train=2000, block_size=50, within_correlation=0.7, seed=123):
+def generate_block_X(n_predictors=500, n_train=2000, block_size=50, within_correlation=0.7, seed=123):
     """
     Generate a design matrix X with block correlation structure.
-    Predictors within the same block have specified correlation, while 
-    predictors in different blocks are uncorrelated.
-    
-    Parameters:
-    -----------
-    n_predictors : int
-        Number of predictor variables
-    n_train : int
-        Number of training samples
-    block_size : int
-        Size of each correlation block
-    within_correlation : float
-        Correlation coefficient for variables within the same block
-    seed : int
-        Random seed for reproducibility
-        
-    Returns:
-    --------
-    X : ndarray
-        Design matrix with block correlation structure
     """
     np.random.seed(seed)
     
@@ -152,7 +143,9 @@ def generate_block_X(n_predictors=250, n_train=2000, block_size=50, within_corre
     
     return X
 
-def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=25, seed=123):
+def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=None, seed=123):
+    """Generate example with exact sparsity."""
+    assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
     n_train,p = X.shape
     signals = int(p*signal_proportion)
@@ -163,38 +156,9 @@ def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=25, seed=12
 
     return X, y, y_true, beta, p, sigma
 
-def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=25, eta=0.2, seed=123):
-    """
-    Generate response variable with inexact sparsity structure controlled by eta.
-    First p*signal_proportion coefficients are strong signals (magnitude 1),
-    remaining coefficients decay exponentially at rate eta.
-    
-    Parameters:
-    -----------
-    X : ndarray of shape (n_train, n_features)
-        Design matrix
-    eta : float, default=0.1
-        Controls decay of coefficient magnitudes. 
-        Larger eta -> faster decay -> more sparsity
-        Smaller eta -> slower decay -> less sparsity
-    sigma : float, default=25
-        Noise standard deviation
-    seed : int, default=123
-        Random seed for reproducibility
-    
-    Returns:
-    --------
-    X : ndarray of shape (n_train, n_features)
-        Design matrix
-    y : ndarray of shape (n_train,)
-        Noisy response variable
-    y_true : ndarray of shape (n_train,)
-        Noiseless response variable
-    p : int
-        Number of features
-    sigma : float
-        Noise standard deviation
-    """
+def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=None, eta=0.5, seed=123):
+    """Generate example with inexact sparsity."""
+    assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
     n_train, p = X.shape
     signals = int(p*signal_proportion)
@@ -218,47 +182,19 @@ def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=25, eta=0
     
     return X, y, y_true, beta, p, sigma
 
-def generate_nonlinear_example(X, signal_proportion=0.04, sigma = 10, eta=0.5, seed=123):
-    """
-    Generate example data with controllable nonlinearity.
-    
-    Parameters
-    ----------
-    X : ndarray
-        Input design matrix
-    eta : float, optional (default=0.5)
-        Nonlinearity parameter between 0 and 1
-        eta = 0: fully linear model
-        eta = 1: highly nonlinear model
-    seed : int
-        Random seed for reproducibility
-    
-    Returns
-    -------
-    X : ndarray
-        Input design matrix
-    y : ndarray
-        Noisy observations
-    y_true : ndarray
-        True signal (without noise)
-    p : int
-        Number of predictors
-    sigma : float
-        Noise level
-    """
+def generate_nonlinear_example(X, signal_proportion=0.04, sigma=None, eta=0.5, seed=123):
+    """Generate example with nonlinear components."""
+    assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
     n_train,p = X.shape
     signals = int(p*signal_proportion)
     
-    # Linear component (similar to other examples)
+    # Linear component
     beta_linear = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
     linear_signal = X @ beta_linear
     
     # Nonlinear component using interactions and quadratic terms
-    # Select first signals/2 active variables for interactions
     X_active = X[:, :signals//2]
-    
-    # Create quadratic terms
     quad_terms = X_active**2
     
     # Create pairwise interactions
@@ -269,101 +205,39 @@ def generate_nonlinear_example(X, signal_proportion=0.04, sigma = 10, eta=0.5, s
     
     # Combine linear and nonlinear components
     nonlinear_signal = (quad_terms.sum(axis=1) + interactions) / np.sqrt(p)
-    
-    # Mix linear and nonlinear signals based on eta
     y_true = (1 - eta) * linear_signal + eta * nonlinear_signal
-    
-    # Add noise
     y = y_true + np.random.normal(0, sigma, n_train)
     
     return X, y, y_true, beta_linear, p, sigma
 
-def generate_laplace_example(X, signal_proportion=0.04, sigma = 15, seed=123):
-    """
-    Generate example data with Laplace noise.
-    The Laplace distribution has similar mean but heavier tails than Gaussian.
-    
-    Parameters
-    ----------
-    X : ndarray
-        Input design matrix
-    seed : int
-        Random seed for reproducibility
-    
-    Returns
-    -------
-    X : ndarray
-        Input design matrix
-    y : ndarray
-        Noisy observations
-    y_true : ndarray
-        True signal (without noise)
-    p : int
-        Number of predictors
-    sigma : float
-        Scale parameter of Laplace distribution
-    """
+def generate_laplace_example(X, signal_proportion=0.04, sigma=None, seed=123):
+    """Generate example with Laplace noise."""
+    assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
     n_train,p = X.shape
     signals = int(p*signal_proportion)
     
-    # Use same beta structure as other examples
     beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
-    
-    # Generate true signal
     y_true = X @ beta
     
-    # Generate Laplace noise
-    # Use scale = sigma/sqrt(2) to match the variance of N(0,sigma^2)
+    # Generate Laplace noise (scale = sigma/sqrt(2) to match N(0,sigma^2) variance)
     laplace_noise = np.random.laplace(loc=0, scale=sigma/np.sqrt(2), size=n_train)
-    
-    # Add noise to signal
     y = y_true + laplace_noise
     
     return X, y, y_true, beta, p, sigma
 
-def generate_cauchy_example(X, signal_proportion=0.04, scale=15, seed=123):
-    """
-    Generate example data with Cauchy noise.
-    The Cauchy distribution has undefined moments (infinite mean and variance)
-    and extremely heavy tails, making it a challenging noise model.
-    
-    Parameters
-    ----------
-    X : ndarray
-        Input design matrix
-    seed : int
-        Random seed for reproducibility
-    
-    Returns
-    -------
-    X : ndarray
-        Input design matrix
-    y : ndarray
-        Noisy observations
-    y_true : ndarray
-        True signal (without noise)
-    p : int
-        Number of predictors
-    scale : float
-        Scale parameter of Cauchy distribution (analogous to σ but not equivalent)
-    """
+def generate_cauchy_example(X, signal_proportion=0.04, sigma=None, seed=123):
+    """Generate example with Cauchy noise."""
+    assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
     n_train,p = X.shape
     signals = int(p*signal_proportion)
     
-    # Use same beta structure as other examples
     beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
-    
-    # Generate true signal
     y_true = X @ beta
     
     # Generate Cauchy noise
-    # Use standard Cauchy distribution (location=0, scale=scale)
-    cauchy_noise = scale * np.random.standard_cauchy(size=n_train)
-    
-    # Add noise to signal
+    cauchy_noise = sigma * np.random.standard_cauchy(size=n_train)
     y = y_true + cauchy_noise
     
-    return X, y, y_true, beta, p, scale
-
+    return X, y, y_true, beta, p, sigma

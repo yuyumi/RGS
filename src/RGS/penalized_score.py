@@ -9,7 +9,7 @@ def create_penalized_scorer(sigma2, n, p, k):
     Parameters
     ----------
     sigma2 : float
-        True noise variance
+        Noise variance
     n : int
         Sample size
     p : int
@@ -27,10 +27,9 @@ def create_penalized_scorer(sigma2, n, p, k):
         mse = mean_squared_error(y_true, y_pred)
         
         # Compute penalty
-        penalty = 2*sigma2**2/n*k*np.log(p/k)
+        penalty = 2*sigma2/n*k*np.log(p/k)
         
         # Return negative since sklearn maximizes scores
         return -(mse + penalty)
     
-    # Create sklearn-compatible scorer
-    return make_scorer(penalized_score)
+    return penalized_score

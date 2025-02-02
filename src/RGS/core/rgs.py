@@ -1,3 +1,7 @@
+from collections import Counter
+import numpy as np
+import pandas as pd
+
 from sklearn.base import BaseEstimator, RegressorMixin, check_X_y
 from sklearn.linear_model import LinearRegression
 from scipy.linalg import lstsq
@@ -199,22 +203,20 @@ class RGSCV(BaseEstimator, RegressorMixin):
             raise ValueError("scoring should be None, a string, or a callable")
         
     def fit(self, X, y):
-        # Initialize scores dictionary
-        self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
-                          for k in range(1, self.k_max + 1)}
-        
-        # Get scorer
-        scorer = self._get_scorer()
-        
+        """Fit the model using cross-validation to select the best m."""
         # Convert inputs if needed
         if isinstance(X, pd.DataFrame):
             X = X.values
         if isinstance(y, pd.Series):
             y = y.values
-            
+                
         # Setup CV splitter
         cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
-                           random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+                        random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+        
+        # Initialize scores dictionary
+        self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
+                        for k in range(1, self.k_max + 1)}
         
         # Perform CV
         for train_idx, val_idx in cv_splitter.split(X):
@@ -236,14 +238,19 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 # Evaluate for each k
                 for k in range(1, self.k_max + 1):
                     y_pred = model.predict(X_val, k=k)
-                    score = scorer(y_val, y_pred)
+                    # If scorer is a function, call it directly
+                    if callable(self.scoring):
+                        score = self.scoring(y_val, y_pred)
+                    # If scorer is a string or None, use get_scorer
+                    else:
+                        scorer = get_scorer(self.scoring)
+                        score = scorer(y_val, y_pred)
                     self.cv_scores_[k][m].append(score)
         
         # Find best parameters
         best_params = {}
         for k in range(1, self.k_max + 1):
             mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
-            # For scorer, higher score is better
             best_m = max(mean_scores.items(), key=lambda x: x[1])[0]
             best_params[k] = {'m': best_m, 'score': mean_scores[best_m]}
         
