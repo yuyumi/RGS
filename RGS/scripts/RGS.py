@@ -1,13 +1,9 @@
-from collections import Counter, defaultdict
-import numpy as np
-import pandas as pd
-
 from sklearn.base import BaseEstimator, RegressorMixin, check_X_y
 from sklearn.linear_model import LinearRegression
 from scipy.linalg import lstsq
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, make_scorer, get_scorer
 
 class RGS(BaseEstimator, RegressorMixin):
     """
@@ -153,7 +149,7 @@ class RGS(BaseEstimator, RegressorMixin):
 
 class RGSCV(BaseEstimator, RegressorMixin):
     """
-    Cross-validation wrapper for RGS.
+    Cross-validation wrapper for RGS with custom scoring support.
     
     Parameters
     ----------
@@ -175,19 +171,40 @@ class RGSCV(BaseEstimator, RegressorMixin):
         
     cv : int, default=5
         Number of cross-validation folds.
+        
+    scoring : string, callable, or None, default=None
+        Scoring method to use. If None, defaults to 'neg_mean_squared_error'.
+        If string, uses sklearn's scoring methods.
+        If callable, expects a function with signature scorer(y_true, y_pred).
     """
-    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, random_state=None, cv=5):
+    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, 
+                 random_state=None, cv=5, scoring=None):
         self.k_max = k_max
         self.m_grid = m_grid
         self.n_replications = n_replications
         self.n_resample_iter = n_resample_iter
         self.random_state = random_state
         self.cv = cv
+        self.scoring = scoring
+        
+    def _get_scorer(self):
+        """Get a scoring function based on the scoring parameter."""
+        if self.scoring is None:
+            return get_scorer('neg_mean_squared_error')
+        elif isinstance(self.scoring, str):
+            return get_scorer(self.scoring)
+        elif callable(self.scoring):
+            return make_scorer(self.scoring)
+        else:
+            raise ValueError("scoring should be None, a string, or a callable")
         
     def fit(self, X, y):
         # Initialize scores dictionary
         self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
                           for k in range(1, self.k_max + 1)}
+        
+        # Get scorer
+        scorer = self._get_scorer()
         
         # Convert inputs if needed
         if isinstance(X, pd.DataFrame):
@@ -219,18 +236,19 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 # Evaluate for each k
                 for k in range(1, self.k_max + 1):
                     y_pred = model.predict(X_val, k=k)
-                    score = mean_squared_error(y_val, y_pred)
+                    score = scorer(y_val, y_pred)
                     self.cv_scores_[k][m].append(score)
         
         # Find best parameters
         best_params = {}
         for k in range(1, self.k_max + 1):
             mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
-            best_m = min(mean_scores.items(), key=lambda x: x[1])[0]
+            # For scorer, higher score is better
+            best_m = max(mean_scores.items(), key=lambda x: x[1])[0]
             best_params[k] = {'m': best_m, 'score': mean_scores[best_m]}
         
         # Find optimal k
-        self.k_ = min(best_params.items(), key=lambda x: x[1]['score'])[0]
+        self.k_ = max(best_params.items(), key=lambda x: x[1]['score'])[0]
         self.m_ = best_params[self.k_]['m']
         
         # Fit final model with best parameters

@@ -1,7 +1,7 @@
 __pycache__/*
 .vscode/*
 notebooks/.ipynb_checkpoints/
-real_data/*
+input_data/*
 *.csv
 *.png
 *.xlsx

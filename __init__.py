@@ -1,1 +1,1 @@
-from RGS import RandomizedGreedySelection, FastRandomizedGreedySelection
+from RGS import RGS, RGSCV
