@@ -18,10 +18,79 @@ def load_params(param_path):
         params = json.load(f)
     return params
 
-def calculate_m_grid(n_predictors, base, num_points):
-    """Calculate m grid based on parameters."""
-    return [int(2 + (n_predictors-2) * (base**x - 1)/(base**(num_points-1) - 1)) 
-            for x in range(num_points)]
+def pve_to_sigma(pve, signal_proportion, n_predictors):
+    """
+    Convert PVE to sigma value.
+    
+    PVE = (s*p)/(s*p + sigma^2)
+    where s is signal_proportion and p is n_predictors
+    
+    Solving for sigma:
+    sigma = sqrt((s*p/PVE) - s*p)
+    """
+    sp = signal_proportion * n_predictors
+    return np.sqrt((sp/pve) - sp)
+
+def get_sigma_list(sigma_params, signal_proportion, n_predictors):
+    """
+    Get list of sigma values based on parameters.
+    
+    Parameters
+    ----------
+    sigma_params : dict
+        Dictionary containing either:
+        - type: "list" and values with list of sigma values
+        - type: "pve" and params with num_points, min_pve, max_pve
+    signal_proportion : float
+        Signal proportion (needed for PVE calculation)
+    n_predictors : int
+        Number of predictors (needed for PVE calculation)
+        
+    Returns
+    -------
+    list
+        List of sigma values to use
+    """
+    if sigma_params['type'] == 'list':
+        return sigma_params['values']
+    elif sigma_params['type'] == 'pve':
+        pve_values = np.linspace(
+            sigma_params['params']['min_pve'],
+            sigma_params['params']['max_pve'],
+            sigma_params['params']['num_points']
+        )
+        return [pve_to_sigma(pve, signal_proportion, n_predictors) 
+                for pve in pve_values]
+    else:
+        raise ValueError(f"Unknown sigma type: {sigma_params['type']}")
+
+def get_m_grid(grid_params, n_predictors):
+    """
+    Get m_grid based on parameters.
+    
+    Parameters
+    ----------
+    grid_params : dict
+        Dictionary containing either:
+        - type: "geometric" and params with base and num_points
+        - type: "list" and values with list of m values
+    n_predictors : int
+        Number of predictors (needed for geometric grid)
+    
+    Returns
+    -------
+    list
+        List of m values to use
+    """
+    if grid_params['type'] == 'geometric':
+        base = grid_params['params']['base']
+        num_points = grid_params['params']['num_points']
+        return [int(2 + (n_predictors-2) * (base**x - 1)/(base**(num_points-1) - 1)) 
+                for x in range(num_points)]
+    elif grid_params['type'] == 'list':
+        return grid_params['values']
+    else:
+        raise ValueError(f"Unknown m_grid type: {grid_params['type']}")
 
 def run_one_dgp_iter(
     X,
@@ -76,10 +145,9 @@ def run_one_dgp_iter(
     scorer = create_penalized_scorer(sigma**2, n_train, p, params['model']['k_max'])
     
     # Calculate m_grid
-    m_grid = calculate_m_grid(
-        params['data']['n_predictors'],
-        params['model']['m_grid']['base'],
-        params['model']['m_grid']['num_points']
+    m_grid = get_m_grid(
+        params['model']['m_grid'],
+        params['data']['n_predictors']
     )
     
     # Fit RGSCV
@@ -145,8 +213,18 @@ def main(param_path):
     }
     generator = generators[params['data']['generator_type']]
     
-    # Get sigma values from simulation parameters
-    sigmas = params['simulation']['sigma_list']
+    # Get sigma values based on parameters
+    sigmas = get_sigma_list(
+        params['simulation']['sigma'],
+        params['data']['signal_proportion'],
+        params['data']['n_predictors']
+    )
+    
+    # Sort sigmas for nice progression in progress bar
+    sigmas = sorted(sigmas)
+    
+    # Save the actual sigma values used in the params for reference
+    params['simulation']['sigma']['computed_values'] = sigmas
     
     # Initialize results storage
     all_results = []
