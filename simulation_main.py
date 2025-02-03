@@ -274,14 +274,28 @@ def main(param_path):
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)
     
-    # Save results
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+   # Create filename base using descriptive parameters
+    filename_base = (
+        f"{params['data']['covariance_type']}_"
+        f"{params['data']['generator_type']}_"
+        f"{time.strftime('%Y%m%d_%H%M%S')}"
+    )
+
+    # Create save directory
     save_path = Path(params['output']['save_path'])
-    results_df.to_csv(save_path / f'simulation_results_{timestamp}.csv', index=False)
-    summary.to_csv(save_path / f'simulation_summary_{timestamp}.csv')
-    
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    # Save results and summary
+    results_df.to_csv(save_path / f'simulation_results_{filename_base}.csv', index=False)
+    summary.to_csv(save_path / f'simulation_summary_{filename_base}.csv')
+
+    # Save parameters used
+    with open(save_path / f'simulation_params_{filename_base}.json', 'w') as f:
+        json.dump(params, f, indent=4)
+
     print(f"\nSimulation completed in {(time.time() - start_time)/60:.1f} minutes")
-    
+    print(f"Results saved with base filename: {filename_base}")
+        
     return results_df, summary
 
 if __name__ == "__main__":

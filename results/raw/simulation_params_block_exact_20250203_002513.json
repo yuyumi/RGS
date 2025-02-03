@@ -8,14 +8,21 @@
                 "num_points": 5,
                 "min_pve": 0.2,
                 "max_pve": 0.8
-            }
+            },
+            "computed_values": [
+                1.118033988749895,
+                1.6408253082847335,
+                2.23606797749979,
+                3.04724700110022,
+                4.47213595499958
+            ]
         }
     },
     "data": {
         "n_predictors": 10,
         "n_train": 100,
         "signal_proportion": 0.5,
-        "covariance_type": "block", 
+        "covariance_type": "block",
         "generator_type": "exact",
         "block_params": {
             "block_size": 5,
