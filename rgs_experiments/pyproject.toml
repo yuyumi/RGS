@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rgs_experiments"
+version = "0.1.0"
+description = "Experimental framework for RGS algorithm"
+requires-python = ">=3.8"
+dependencies = [
+    "rgs",
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.4.0",
+    "pandas>=1.3.0",
+    "seaborn>=0.11.0"
+]

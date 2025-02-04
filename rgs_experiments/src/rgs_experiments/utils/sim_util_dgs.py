@@ -12,7 +12,7 @@ __all__ = [
     'generate_cauchy_example'
 ]
 
-def generate_orthogonal_X(n_predictors=500, n_train=2000, seed=123):
+def generate_orthogonal_X(n_predictors, n_train, seed=123):
     """
     Generate the base design matrix X that will remain fixed across replications.
     """
@@ -31,7 +31,7 @@ def generate_orthogonal_X(n_predictors=500, n_train=2000, seed=123):
     
     return X
 
-def generate_banded_X(n_predictors=500, n_train=2000, seed=123):
+def generate_banded_X(n_predictors, n_train, seed=123):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
     Each block is transformed by a different random orthogonal matrix.
@@ -83,7 +83,7 @@ def generate_banded_X(n_predictors=500, n_train=2000, seed=123):
     
     return X
 
-def generate_block_X(n_predictors=500, n_train=2000, block_size=50, within_correlation=0.7, seed=123):
+def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123):
     """
     Generate a design matrix X with block correlation structure.
     """
@@ -143,7 +143,7 @@ def generate_block_X(n_predictors=500, n_train=2000, block_size=50, within_corre
     
     return X
 
-def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=None, seed=123):
+def generate_exact_sparsity_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with exact sparsity."""
     assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
@@ -156,7 +156,7 @@ def generate_exact_sparsity_example(X, signal_proportion=0.04, sigma=None, seed=
 
     return X, y, y_true, beta, p, sigma
 
-def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=None, eta=0.5, seed=123):
+def generate_inexact_sparsity_example(X, signal_proportion, sigma=None, eta=0.5, seed=123):
     """Generate example with inexact sparsity."""
     assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
@@ -182,7 +182,7 @@ def generate_inexact_sparsity_example(X, signal_proportion=0.04, sigma=None, eta
     
     return X, y, y_true, beta, p, sigma
 
-def generate_nonlinear_example(X, signal_proportion=0.04, sigma=None, eta=0.5, seed=123):
+def generate_nonlinear_example(X, signal_proportion, sigma=None, eta=0.5, seed=123):
     """Generate example with nonlinear components."""
     assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
@@ -210,7 +210,7 @@ def generate_nonlinear_example(X, signal_proportion=0.04, sigma=None, eta=0.5, s
     
     return X, y, y_true, beta_linear, p, sigma
 
-def generate_laplace_example(X, signal_proportion=0.04, sigma=None, seed=123):
+def generate_laplace_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with Laplace noise."""
     assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)
@@ -226,7 +226,7 @@ def generate_laplace_example(X, signal_proportion=0.04, sigma=None, seed=123):
     
     return X, y, y_true, beta, p, sigma
 
-def generate_cauchy_example(X, signal_proportion=0.04, sigma=None, seed=123):
+def generate_cauchy_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with Cauchy noise."""
     assert sigma is not None, "sigma parameter must be provided"
     np.random.seed(seed)

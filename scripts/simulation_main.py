@@ -1,16 +1,19 @@
 import numpy as np
 import pandas as pd
 import time
-import json  # Add this import
+import json
 from pathlib import Path
 from tqdm import tqdm
 from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
 from sklearn.metrics import mean_squared_error
 from functools import partial
 
-from RGS.core.rgs import RGS, RGSCV
+# Import from core RGS package
+from RGS.core.rgs import RGSCV
 from RGS.penalized_score import create_penalized_scorer
-from RGS.utils.sim_util_dgs import *
+
+# Import from simulation package
+from rgs_experiments.utils.sim_util_dgs import *
 
 def load_params(param_path):
     """Load parameters from JSON file."""
@@ -100,13 +103,25 @@ def run_one_dgp_iter(
     seed
 ):
     """Run one iteration of the simulation for a specific DGP setting."""
-    # Generate data
-    X, y, y_true, beta_true, p, sigma = generator(
-        X, 
-        params['data']['signal_proportion'], 
-        sigma, 
-        seed=seed
-    )
+    # Get generator-specific parameters if needed
+    if params['data']['generator_type'] in ['nonlinear', 'inexact']:
+        generator_params = params['data'].get('generator_params', {})
+        eta = generator_params.get('eta', 0.5)  # default to 0.5 if not specified
+        X, y, y_true, beta_true, p, sigma = generator(
+            X, 
+            params['data']['signal_proportion'], 
+            sigma,
+            eta=eta,
+            seed=seed
+        )
+    else:
+        # Original code for other generators
+        X, y, y_true, beta_true, p, sigma = generator(
+            X, 
+            params['data']['signal_proportion'], 
+            sigma, 
+            seed=seed
+        )
     n_train = X.shape[0]
     
     # Fit baseline models with specified CV
@@ -173,6 +188,31 @@ def run_one_dgp_iter(
         'coef_recovery_rgs': np.mean((rgscv.model_.coef_[rgscv.k_] - beta_true)**2),
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
+        )
+    })
+
+    # Fit RGSCV
+    gscv = RGSCV(
+        k_max=params['model']['k_max'],
+        m_grid=list([params['data']['n_predictors']]),
+        n_replications=1,
+        n_resample_iter=0,
+        random_state=seed,
+        cv=params['model']['rgscv']['cv'],
+        scoring=scorer
+    )
+    gscv.fit(X, y)
+    
+    # Get predictions using best parameters
+    y_pred_gs = gscv.predict(X)
+    
+    # Add RGSCV results
+    result.update({
+        'best_k': gscv.k_,
+        'mse_gs': mean_squared_error(y_true, y_pred_gs),
+        'coef_recovery_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
+        'support_recovery_gs': np.mean(
+            (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
         )
     })
     
@@ -269,7 +309,10 @@ def main(param_path):
         'support_recovery_elastic': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],
-        'support_recovery_rgs': ['mean', 'std']
+        'support_recovery_rgs': ['mean', 'std'],
+        'mse_gs': ['mean', 'std'],
+        'coef_recovery_gs': ['mean', 'std'],
+        'support_recovery_gs': ['mean', 'std']
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)
@@ -299,7 +342,8 @@ def main(param_path):
     return results_df, summary
 
 if __name__ == "__main__":
-    # Get the project root directory (where setup.py is)
-    root_dir = Path(__file__).parent
+
+    # Get the project root directory
+    root_dir = Path(__file__).parent.parent  # Go up one level from scripts folder
     param_path = root_dir / "params" / "sim_params.json"
     results_df, summary = main(param_path)

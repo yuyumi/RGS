@@ -1,6 +1,0 @@
-Metadata-Version: 2.2
-Name: RGS
-Version: 0.1.0
-Summary: Random Greedy Selection for feature selection
-Author-email: Your Name <your.email@example.com>
-Requires-Python: >=3.8

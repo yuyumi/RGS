@@ -209,21 +209,13 @@ class RGSCV(BaseEstimator, RegressorMixin):
             X = X.values
         if isinstance(y, pd.Series):
             y = y.values
-                
-        # Setup CV splitter
-        cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
-                        random_state=self.random_state) if isinstance(self.cv, int) else self.cv
-        
+
         # Initialize scores dictionary
         self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
                         for k in range(1, self.k_max + 1)}
         
-        # Perform CV
-        for train_idx, val_idx in cv_splitter.split(X):
-            X_train, X_val = X[train_idx], X[val_idx]
-            y_train, y_val = y[train_idx], y[val_idx]
-            
-            # Try each m value
+        if self.cv == 1:
+        # No CV - use full dataset directly
             for m in self.m_grid:
                 # Create and fit RGS model
                 model = RGS(
@@ -233,19 +225,53 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     n_resample_iter=self.n_resample_iter,
                     random_state=self.random_state
                 )
-                model.fit(X_train, y_train)
+                model.fit(X, y)
                 
                 # Evaluate for each k
                 for k in range(1, self.k_max + 1):
-                    y_pred = model.predict(X_val, k=k)
+                    y_pred = model.predict(X, k=k)
                     # If scorer is a function, call it directly
                     if callable(self.scoring):
-                        score = self.scoring(y_val, y_pred)
+                        score = self.scoring(y, y_pred)
                     # If scorer is a string or None, use get_scorer
                     else:
                         scorer = get_scorer(self.scoring)
-                        score = scorer(y_val, y_pred)
-                    self.cv_scores_[k][m].append(score)
+                        score = scorer(y, y_pred)
+                    self.cv_scores_[k][m] = [score]  # Single score in a list for consistency
+        else:
+                
+            # Setup CV splitter
+            cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
+                            random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+            
+            # Perform CV
+            for train_idx, val_idx in cv_splitter.split(X):
+                X_train, X_val = X[train_idx], X[val_idx]
+                y_train, y_val = y[train_idx], y[val_idx]
+                
+                # Try each m value
+                for m in self.m_grid:
+                    # Create and fit RGS model
+                    model = RGS(
+                        k_max=self.k_max,
+                        m=m,
+                        n_estimators=self.n_replications,
+                        n_resample_iter=self.n_resample_iter,
+                        random_state=self.random_state
+                    )
+                    model.fit(X_train, y_train)
+                    
+                    # Evaluate for each k
+                    for k in range(1, self.k_max + 1):
+                        y_pred = model.predict(X_val, k=k)
+                        # If scorer is a function, call it directly
+                        if callable(self.scoring):
+                            score = self.scoring(y_val, y_pred)
+                        # If scorer is a string or None, use get_scorer
+                        else:
+                            scorer = get_scorer(self.scoring)
+                            score = scorer(y_val, y_pred)
+                        self.cv_scores_[k][m].append(score)
         
         # Find best parameters
         best_params = {}

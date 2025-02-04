@@ -1,36 +1,41 @@
 {
     "simulation": {
-        "n_sim": 1,
+        "n_sim": 10,
         "base_seed": 42,
         "sigma": {
             "type": "pve",
             "params": {
-                "num_points": 5,
-                "min_pve": 0.2,
+                "num_points": 10,
+                "min_pve": 0.01,
                 "max_pve": 0.8
             },
             "computed_values": [
-                1.118033988749895,
-                1.6408253082847335,
-                2.23606797749979,
-                3.04724700110022,
-                4.47213595499958
+                1.5811388300841898,
+                2.010114828178952,
+                2.4523937031897702,
+                2.9382886809622373,
+                3.5038875157134073,
+                4.206222496766866,
+                5.15609986847215,
+                6.625120041845451,
+                9.605869417846948,
+                31.464265445104548
             ]
         }
     },
     "data": {
-        "n_predictors": 10,
-        "n_train": 100,
-        "signal_proportion": 0.5,
+        "n_predictors": 500,
+        "n_train": 2000,
+        "signal_proportion": 0.02,
         "covariance_type": "block",
-        "generator_type": "exact",
+        "generator_type": "laplace",
         "block_params": {
-            "block_size": 5,
+            "block_size": 50,
             "within_correlation": 0.7
         }
     },
     "model": {
-        "k_max": 10,
+        "k_max": 35,
         "m_grid": {
             "type": "geometric",
             "params": {
@@ -41,7 +46,7 @@
         "rgscv": {
             "n_replications": 1000,
             "n_resample_iter": 7,
-            "cv": 5
+            "cv": 1
         },
         "baseline": {
             "cv": 10

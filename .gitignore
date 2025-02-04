@@ -10,3 +10,7 @@ input_data/*.tsv
 *.pyc
 build/
 dist/
+rgs_experiments/results/**/*.csv
+rgs_experiments/results/**/*.pkl
+rgs_experiments/results/**/*.npy
+!rgs_experiments/results/**/.gitkeep
