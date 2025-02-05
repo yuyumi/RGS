@@ -1,35 +1,38 @@
 import numpy as np
-from functools import partial
-from sklearn.metrics import mean_squared_error, make_scorer
+from sklearn.metrics import make_scorer
 
-def create_penalized_scorer(sigma2, n, p, k):
+def create_penalized_scorer(sigma2, n, p):
     """
-    Create a scorer function for penalized MSE that's compatible with sklearn.
+    Create a base scorer function that can be wrapped for each k value.
     
     Parameters
     ----------
     sigma2 : float
-        Noise variance
+        True noise variance
     n : int
         Sample size
     p : int
         Number of features
-    k : int
-        Number of features to use
         
     Returns
     -------
     callable
-        Scorer function compatible with sklearn
+        Function that creates sklearn-compatible scorer for a given k
     """
-    def penalized_score(y_true, y_pred):
-        # Compute MSE
-        mse = mean_squared_error(y_true, y_pred)
+    def make_k_scorer(k):
+        """Create a scorer for a specific k value."""
+        def penalized_score(y_true, y_pred):
+            # Compute MSE
+            error = y_true - y_pred
+            mse = (error ** 2).mean()
+            
+            # Compute penalty using current k value
+            penalty = 2*sigma2/n*k*np.log(p/k)
+            
+            # Return negative since sklearn maximizes scores
+            return -(mse + penalty)
         
-        # Compute penalty
-        penalty = 2*sigma2/n*k*np.log(p/k)
-        
-        # Return negative since sklearn maximizes scores
-        return -(mse + penalty)
+        # Create sklearn-compatible scorer
+        return make_scorer(penalized_score)
     
-    return penalized_score
+    return make_k_scorer

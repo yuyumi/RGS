@@ -189,16 +189,17 @@ class RGSCV(BaseEstimator, RegressorMixin):
         self.n_resample_iter = n_resample_iter
         self.random_state = random_state
         self.cv = cv
-        self.scoring = scoring
+        self.scoring = scoring  # This will be a scorer factory function
         
-    def _get_scorer(self):
-        """Get a scoring function based on the scoring parameter."""
+    def _get_scorer(self, k):
+        """Get a scoring function for the current k value."""
         if self.scoring is None:
             return get_scorer('neg_mean_squared_error')
         elif isinstance(self.scoring, str):
             return get_scorer(self.scoring)
         elif callable(self.scoring):
-            return make_scorer(self.scoring)
+            # self.scoring is our make_k_scorer function
+            return self.scoring(k)
         else:
             raise ValueError("scoring should be None, a string, or a callable")
         
@@ -215,9 +216,8 @@ class RGSCV(BaseEstimator, RegressorMixin):
                         for k in range(1, self.k_max + 1)}
         
         if self.cv == 1:
-        # No CV - use full dataset directly
+            # No CV - use full dataset directly
             for m in self.m_grid:
-                # Create and fit RGS model
                 model = RGS(
                     k_max=self.k_max,
                     m=m,
@@ -230,14 +230,10 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 # Evaluate for each k
                 for k in range(1, self.k_max + 1):
                     y_pred = model.predict(X, k=k)
-                    # If scorer is a function, call it directly
-                    if callable(self.scoring):
-                        score = self.scoring(y, y_pred)
-                    # If scorer is a string or None, use get_scorer
-                    else:
-                        scorer = get_scorer(self.scoring)
-                        score = scorer(y, y_pred)
-                    self.cv_scores_[k][m] = [score]  # Single score in a list for consistency
+                    # Get scorer for current k
+                    scorer = self._get_scorer(k)
+                    score = scorer(model, X, y)
+                    self.cv_scores_[k][m] = [score]
         else:
                 
             # Setup CV splitter
@@ -249,9 +245,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 X_train, X_val = X[train_idx], X[val_idx]
                 y_train, y_val = y[train_idx], y[val_idx]
                 
-                # Try each m value
                 for m in self.m_grid:
-                    # Create and fit RGS model
                     model = RGS(
                         k_max=self.k_max,
                         m=m,
@@ -264,13 +258,9 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     # Evaluate for each k
                     for k in range(1, self.k_max + 1):
                         y_pred = model.predict(X_val, k=k)
-                        # If scorer is a function, call it directly
-                        if callable(self.scoring):
-                            score = self.scoring(y_val, y_pred)
-                        # If scorer is a string or None, use get_scorer
-                        else:
-                            scorer = get_scorer(self.scoring)
-                            score = scorer(y_val, y_pred)
+                        # Get scorer for current k
+                        scorer = self._get_scorer(k)
+                        score = scorer(model, X_val, y_val)
                         self.cv_scores_[k][m].append(score)
         
         # Find best parameters

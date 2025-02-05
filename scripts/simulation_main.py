@@ -9,8 +9,8 @@ from sklearn.metrics import mean_squared_error
 from functools import partial
 
 # Import from core RGS package
-from RGS.core.rgs import RGSCV
-from RGS.penalized_score import create_penalized_scorer
+from rgs.core.rgs import RGSCV
+from rgs.penalized_score import create_penalized_scorer
 
 # Import from simulation package
 from rgs_experiments.utils.sim_util_dgs import *
@@ -146,18 +146,25 @@ def run_one_dgp_iter(
     result = {
         'simulation': seed,
         'sigma': sigma,
-        'mse_lasso': mean_squared_error(y_true, y_pred_lasso),
+        'insample_lasso': mean_squared_error(y_true, y_pred_lasso),
+        'mse_lasso': mean_squared_error(y, y_pred_lasso),
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
         'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
-        'mse_ridge': mean_squared_error(y_true, y_pred_ridge),
+        'insample_ridge': mean_squared_error(y_true, y_pred_ridge),
+        'mse_ridge': mean_squared_error(y, y_pred_ridge),
         'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
-        'mse_elastic': mean_squared_error(y_true, y_pred_elastic),
+        'insample_elastic': mean_squared_error(y_true, y_pred_elastic),
+        'mse_elastic': mean_squared_error(y, y_pred_elastic),
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0))
     }
     
-    ## Create penalized scorer
-    scorer = create_penalized_scorer(sigma**2, n_train, p, params['model']['k_max'])
+    ## Create penalized scorer factory with true sigma^2
+    make_k_scorer = create_penalized_scorer(
+        sigma2=sigma**2,
+        n=X.shape[0],
+        p=params['data']['n_predictors']
+    )
     
     # Calculate m_grid
     m_grid = get_m_grid(
@@ -165,7 +172,7 @@ def run_one_dgp_iter(
         params['data']['n_predictors']
     )
     
-    # Fit RGSCV
+    # Fit RGSCV with scorer factory
     rgscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=m_grid,
@@ -173,7 +180,7 @@ def run_one_dgp_iter(
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
         random_state=seed,
         cv=params['model']['rgscv']['cv'],
-        scoring=scorer
+        scoring=make_k_scorer  # Pass the scorer factory
     )
     rgscv.fit(X, y)
     
@@ -184,7 +191,8 @@ def run_one_dgp_iter(
     result.update({
         'best_m': rgscv.m_,
         'best_k': rgscv.k_,
-        'mse_rgs': mean_squared_error(y_true, y_pred_rgs),
+        'insample_rgs': mean_squared_error(y_true, y_pred_rgs),
+        'mse_rgs': mean_squared_error(y, y_pred_rgs),
         'coef_recovery_rgs': np.mean((rgscv.model_.coef_[rgscv.k_] - beta_true)**2),
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
@@ -199,7 +207,7 @@ def run_one_dgp_iter(
         n_resample_iter=0,
         random_state=seed,
         cv=params['model']['rgscv']['cv'],
-        scoring=scorer
+        scoring=make_k_scorer
     )
     gscv.fit(X, y)
     
@@ -209,7 +217,8 @@ def run_one_dgp_iter(
     # Add RGSCV results
     result.update({
         'best_k': gscv.k_,
-        'mse_gs': mean_squared_error(y_true, y_pred_gs),
+        'insample_gs': mean_squared_error(y_true, y_pred_gs),
+        'mse_gs': mean_squared_error(y, y_pred_gs),
         'coef_recovery_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
         'support_recovery_gs': np.mean(
             (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
@@ -299,18 +308,18 @@ def main(param_path):
     summary_metrics = {
         'best_m': ['mean', 'std'],
         'best_k': ['mean', 'std'],
-        'mse_lasso': ['mean', 'std'],
+        'insample_lasso': ['mean', 'std'],
         'coef_recovery_lasso': ['mean', 'std'],
         'support_recovery_lasso': ['mean', 'std'],
-        'mse_ridge': ['mean', 'std'],
+        'insample_ridge': ['mean', 'std'],
         'coef_recovery_ridge': ['mean', 'std'],
-        'mse_elastic': ['mean', 'std'],
+        'insample_elastic': ['mean', 'std'],
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
-        'mse_rgs': ['mean', 'std'],
+        'insample_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
-        'mse_gs': ['mean', 'std'],
+        'insample_gs': ['mean', 'std'],
         'coef_recovery_gs': ['mean', 'std'],
         'support_recovery_gs': ['mean', 'std']
     }
