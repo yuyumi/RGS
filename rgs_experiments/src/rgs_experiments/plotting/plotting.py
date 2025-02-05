@@ -39,7 +39,12 @@ def plot_metric_by_sigma(results_path, metric='mse', save_path=None):
     # Set log scale and customize plot
     ax.set_yscale('log')
     ax.set_xlabel('Sigma (Noise Level)', fontsize=12)
-    metric_label = 'Mean Square Error' if metric == 'mse' else 'Degrees of Freedom'
+    if (metric == 'mse'):
+        metric_label = 'Mean Square Error'
+    elif (metric == 'insample'):
+        metric_label = 'In-sample Error'
+    else:
+        metric_label = 'Degrees of Freedom'
     ax.set_ylabel(metric_label, fontsize=12)
     ax.set_title(f'{metric_label} by Sigma Level', fontsize=14)
     
@@ -153,7 +158,12 @@ def plot_metric_vs_k(results_path, target_sigma, metric='mse', save_path=None):
     # Set log scale and customize plot
     ax.set_yscale('log')
     ax.set_xlabel('k', fontsize=12)
-    metric_label = 'Mean Square Error' if metric == 'mse' else 'Degrees of Freedom'
+    if (metric == 'mse'):
+        metric_label = 'Mean Square Error'
+    elif (metric == 'insample'):
+        metric_label = 'In-sample Error'
+    else:
+        metric_label = 'Degrees of Freedom'
     ax.set_ylabel(metric_label, fontsize=12)
     ax.set_title(f'{metric_label} vs k (σ = {target_sigma:.2f})', fontsize=14)
     
