@@ -73,7 +73,7 @@ pip install ./rgs_experiments
 Copy and modify the parameter template in params/:
 ```bash
 # Copy template
-cp params/template_params.json params/sim_params.json
+cp templates/template_params.json params/sim_params.json
 
 # Edit parameters as needed
 ```
@@ -118,6 +118,8 @@ python scripts/plotting_runner.py --pattern "banded"
 Plots will be saved in `results/figures/` and include:
 - MSE vs sigma
 - MSE vs proportion of variance explained (PVE)
+- In-sample vs sigma
+- In-sample vs PVE
 - Degrees of freedom vs sigma
 - Degrees of freedom vs PVE
 - MSE vs k for different sigma values
@@ -130,8 +132,14 @@ Plots will be saved in `results/figures/` and include:
 from rgs import RGSCV
 from rgs.penalized_score import create_penalized_scorer
 
-# Create scorer
-scorer = create_penalized_scorer(sigma**2, n_train, p, k_max)
+# First create a base scorer function with the known parameters
+base_scorer = create_penalized_scorer(sigma2=sigma**2, 
+                                    n=n_train, 
+                                    p=p)
+
+# Then create a scorer for a specific k value
+# Note: You'll typically let RGSCV handle this internally
+scorer_k = base_scorer(k=some_k_value)
 
 # Create and fit model
 rgscv = RGSCV(
@@ -141,7 +149,7 @@ rgscv = RGSCV(
     n_resample_iter=n_resample_iter,
     random_state=seed,
     cv=cv,
-    scoring=scorer
+    scoring=scorer_k
 )
 rgscv.fit(X, y)
 

@@ -127,37 +127,43 @@ def run_one_dgp_iter(
     # Fit baseline models with specified CV
     cv = params['model']['baseline']['cv']
     
-    # Lasso
+    # Initialize result dictionary
+    result = {
+        'simulation': seed,
+        'sigma': sigma
+    }
+    
+    # Fit and evaluate Lasso
     lasso = LassoCV(cv=cv, random_state=seed)
     lasso.fit(X, y)
     y_pred_lasso = lasso.predict(X)
-    
-    # Ridge
-    ridge = RidgeCV(cv=cv)
-    ridge.fit(X, y)
-    y_pred_ridge = ridge.predict(X)
-    
-    # Elastic Net
-    elastic = ElasticNetCV(cv=cv, random_state=seed)
-    elastic.fit(X, y)
-    y_pred_elastic = elastic.predict(X)
-    
-    # Create result dictionary with baseline models
-    result = {
-        'simulation': seed,
-        'sigma': sigma,
+    result.update({
         'insample_lasso': mean_squared_error(y_true, y_pred_lasso),
         'mse_lasso': mean_squared_error(y, y_pred_lasso),
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
-        'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
+        'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0))
+    })
+    
+    # Fit and evaluate Ridge
+    ridge = RidgeCV(cv=cv)
+    ridge.fit(X, y)
+    y_pred_ridge = ridge.predict(X)
+    result.update({
         'insample_ridge': mean_squared_error(y_true, y_pred_ridge),
         'mse_ridge': mean_squared_error(y, y_pred_ridge),
-        'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
+        'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2)
+    })
+    
+    # Fit and evaluate Elastic Net
+    elastic = ElasticNetCV(cv=cv, random_state=seed)
+    elastic.fit(X, y)
+    y_pred_elastic = elastic.predict(X)
+    result.update({
         'insample_elastic': mean_squared_error(y_true, y_pred_elastic),
         'mse_elastic': mean_squared_error(y, y_pred_elastic),
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0))
-    }
+    })
     
     ## Create penalized scorer factory with true sigma^2
     make_k_scorer = create_penalized_scorer(
@@ -180,14 +186,12 @@ def run_one_dgp_iter(
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
         random_state=seed,
         cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer  # Pass the scorer factory
+        scoring=make_k_scorer
     )
     rgscv.fit(X, y)
     
     # Get predictions using best parameters
     y_pred_rgs = rgscv.predict(X)
-    
-    # Add RGSCV results
     result.update({
         'best_m': rgscv.m_,
         'best_k': rgscv.k_,
@@ -199,7 +203,7 @@ def run_one_dgp_iter(
         )
     })
 
-    # Fit RGSCV
+    # Fit Greedy Selection
     gscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=list([params['data']['n_predictors']]),
@@ -213,10 +217,8 @@ def run_one_dgp_iter(
     
     # Get predictions using best parameters
     y_pred_gs = gscv.predict(X)
-    
-    # Add RGSCV results
     result.update({
-        'best_k': gscv.k_,
+        'best_k_gs': gscv.k_,  # Distinguish from RGS k
         'insample_gs': mean_squared_error(y_true, y_pred_gs),
         'mse_gs': mean_squared_error(y, y_pred_gs),
         'coef_recovery_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
@@ -228,9 +230,7 @@ def run_one_dgp_iter(
     return result
 
 def main(param_path):
-    """
-    Main simulation loop.
-    """
+    """Main simulation loop."""
     # Load parameters
     params = load_params(param_path)
     start_time = time.time()
@@ -268,17 +268,15 @@ def main(param_path):
         params['data']['signal_proportion'],
         params['data']['n_predictors']
     )
+    sigmas = sorted(sigmas)  # Sort for nice progression in progress bar
     
-    # Sort sigmas for nice progression in progress bar
-    sigmas = sorted(sigmas)
-    
-    # Save the actual sigma values used in the params for reference
+    # Save the actual sigma values used
     params['simulation']['sigma']['computed_values'] = sigmas
     
     # Initialize results storage
     all_results = []
     
-    # Main simulation loop with nested tqdm
+    # Main simulation loop with progress bar
     total_sims = params['simulation']['n_sim'] * len(sigmas)
     with tqdm(total=total_sims, desc="Total Progress") as pbar:
         for sim in range(params['simulation']['n_sim']):
@@ -301,32 +299,38 @@ def main(param_path):
                 all_results.append(result)
                 pbar.update(1)
     
-    # Convert results to DataFrame and compute summary
+    # Convert results to DataFrame
     results_df = pd.DataFrame(all_results)
     
     # Calculate summary statistics
     summary_metrics = {
         'best_m': ['mean', 'std'],
         'best_k': ['mean', 'std'],
+        'best_k_gs': ['mean', 'std'],
         'insample_lasso': ['mean', 'std'],
+        'mse_lasso': ['mean', 'std'],
         'coef_recovery_lasso': ['mean', 'std'],
         'support_recovery_lasso': ['mean', 'std'],
         'insample_ridge': ['mean', 'std'],
+        'mse_ridge': ['mean', 'std'],
         'coef_recovery_ridge': ['mean', 'std'],
         'insample_elastic': ['mean', 'std'],
+        'mse_elastic': ['mean', 'std'],
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
         'insample_rgs': ['mean', 'std'],
+        'mse_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
         'insample_gs': ['mean', 'std'],
+        'mse_gs': ['mean', 'std'],
         'coef_recovery_gs': ['mean', 'std'],
         'support_recovery_gs': ['mean', 'std']
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)
     
-   # Create filename base using descriptive parameters
+    # Create filename base using descriptive parameters
     filename_base = (
         f"{params['data']['covariance_type']}_"
         f"{params['data']['generator_type']}_"
@@ -347,7 +351,7 @@ def main(param_path):
 
     print(f"\nSimulation completed in {(time.time() - start_time)/60:.1f} minutes")
     print(f"Results saved with base filename: {filename_base}")
-        
+    
     return results_df, summary
 
 if __name__ == "__main__":
