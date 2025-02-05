@@ -91,7 +91,6 @@ def plot_metric_by_variance_explained(results_path, metric='mse', save_path=None
         metric_label = 'Mean Square Error'
     elif (metric == 'insample'):
         metric_label = 'In-sample Error'
-
     else:
         metric_label = 'Degrees of Freedom'
     ax.set_ylabel(metric_label, fontsize=12)
