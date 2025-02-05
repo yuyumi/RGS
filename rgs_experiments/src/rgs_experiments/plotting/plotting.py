@@ -87,12 +87,18 @@ def plot_metric_by_variance_explained(results_path, metric='mse', save_path=None
     # Set log scale and customize plot
     ax.set_yscale('log')
     ax.set_xlabel('Proportion of Variance Explained (PVE)', fontsize=12)
-    metric_label = 'Mean Square Error' if metric == 'mse' else 'Degrees of Freedom'
+    if (metric == 'mse'):
+        metric_label = 'Mean Square Error'
+    elif (metric == 'insample'):
+        metric_label = 'In-sample Error'
+
+    else:
+        metric_label = 'Degrees of Freedom'
     ax.set_ylabel(metric_label, fontsize=12)
     ax.set_title(f'{metric_label} by PVE', fontsize=14)
     
     if available_methods:
-        ax.legend(loc='upper right' if metric == 'mse' else 'upper left', fontsize=10)
+        ax.legend(loc='upper right' if ((metric == 'mse') or (metric == 'insample')) else 'upper left', fontsize=10)
     
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -165,11 +171,17 @@ def plot_metric_vs_k(results_path, target_sigma, metric='mse', save_path=None):
 def plot_mse_by_sigma(results_path, save_path=None):
     return plot_metric_by_sigma(results_path, metric='mse', save_path=save_path)
 
+def plot_insample_by_sigma(results_path, save_path=None):
+    return plot_metric_by_sigma(results_path, metric='insample', save_path=save_path)
+
 def plot_df_by_sigma(results_path, save_path=None):
     return plot_metric_by_sigma(results_path, metric='df', save_path=save_path)
 
 def plot_mse_by_variance_explained(results_path, save_path=None):
     return plot_metric_by_variance_explained(results_path, metric='mse', save_path=save_path)
+
+def plot_insample_by_variance_explained(results_path, save_path=None):
+    return plot_metric_by_variance_explained(results_path, metric='insample', save_path=save_path)
 
 def plot_df_by_variance_explained(results_path, save_path=None):
     return plot_metric_by_variance_explained(results_path, metric='df', save_path=save_path)
