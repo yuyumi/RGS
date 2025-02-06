@@ -7,7 +7,7 @@ from sklearn.linear_model import LinearRegression
 from scipy.linalg import lstsq
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error, make_scorer, get_scorer
+from sklearn.metrics import get_scorer
 
 class RGS(BaseEstimator, RegressorMixin):
     """
@@ -232,7 +232,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     y_pred = model.predict(X, k=k)
                     # Get scorer for current k
                     scorer = self._get_scorer(k)
-                    score = scorer(model, X, y)
+                    score = scorer._score_func(y, y_pred)
                     self.cv_scores_[k][m] = [score]
         else:
                 
@@ -260,7 +260,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                         y_pred = model.predict(X_val, k=k)
                         # Get scorer for current k
                         scorer = self._get_scorer(k)
-                        score = scorer(model, X_val, y_val)
+                        score = scorer._score_func(y_val, y_pred)
                         self.cv_scores_[k][m].append(score)
         
         # Find best parameters

@@ -21,9 +21,9 @@ def create_penalized_scorer(sigma2, n, p):
     """
     def make_k_scorer(k):
         """Create a scorer for a specific k value."""
-        def penalized_score(y_true, y_pred):
+        def penalized_score(y, y_pred):
             # Compute MSE
-            error = y_true - y_pred
+            error = y - y_pred
             mse = (error ** 2).mean()
             
             # Compute penalty using current k value

@@ -6,7 +6,6 @@ from pathlib import Path
 from tqdm import tqdm
 from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
 from sklearn.metrics import mean_squared_error
-from functools import partial
 
 # Import from core RGS package
 from rgs.core.rgs import RGSCV
@@ -122,7 +121,6 @@ def run_one_dgp_iter(
             sigma, 
             seed=seed
         )
-    n_train = X.shape[0]
     
     # Fit baseline models with specified CV
     cv = params['model']['baseline']['cv']
