@@ -31,13 +31,12 @@ def generate_orthogonal_X(n_predictors, n_train, seed=123):
     
     return X
 
-def generate_banded_X(n_predictors, n_train, seed=123):
+def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
     Each block is transformed by a different random orthogonal matrix.
     """
     np.random.seed(seed)
-    gamma = 0.65
     
     # Create correlation matrix
     indices = np.arange(n_predictors)

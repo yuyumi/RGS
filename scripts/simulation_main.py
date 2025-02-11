@@ -6,6 +6,9 @@ from pathlib import Path
 from tqdm import tqdm
 from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
 from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import BaggingRegressor
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import GridSearchCV
 
 # Import from core RGS package
 from rgs.core.rgs import RGSCV
@@ -13,6 +16,7 @@ from rgs.penalized_score import create_penalized_scorer
 
 # Import from simulation package
 from rgs_experiments.utils.sim_util_dgs import *
+from rgs_experiments.models.data_smearing import DataSmearingRegressor
 
 def load_params(param_path):
     """Load parameters from JSON file."""
@@ -99,7 +103,8 @@ def run_one_dgp_iter(
     generator,
     sigma,
     params,
-    seed
+    seed,
+    sim_num
 ):
     """Run one iteration of the simulation for a specific DGP setting."""
     # Get generator-specific parameters if needed
@@ -111,7 +116,7 @@ def run_one_dgp_iter(
             params['data']['signal_proportion'], 
             sigma,
             eta=eta,
-            seed=seed
+            seed=seed+sim_num
         )
     else:
         # Original code for other generators
@@ -119,7 +124,7 @@ def run_one_dgp_iter(
             X, 
             params['data']['signal_proportion'], 
             sigma, 
-            seed=seed
+            seed=seed+sim_num
         )
     
     # Fit baseline models with specified CV
@@ -127,12 +132,12 @@ def run_one_dgp_iter(
     
     # Initialize result dictionary
     result = {
-        'simulation': seed,
+        'simulation': sim_num,
         'sigma': sigma
     }
     
     # Fit and evaluate Lasso
-    lasso = LassoCV(cv=cv, random_state=seed)
+    lasso = LassoCV(cv=cv, random_state=seed+sim_num)
     lasso.fit(X, y)
     y_pred_lasso = lasso.predict(X)
     result.update({
@@ -153,7 +158,7 @@ def run_one_dgp_iter(
     })
     
     # Fit and evaluate Elastic Net
-    elastic = ElasticNetCV(cv=cv, random_state=seed)
+    elastic = ElasticNetCV(cv=cv, random_state=seed+sim_num)
     elastic.fit(X, y)
     y_pred_elastic = elastic.predict(X)
     result.update({
@@ -162,11 +167,72 @@ def run_one_dgp_iter(
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0))
     })
+
+    # Fit and evaluate Bagged Linear Regression
+    param_grid = {
+        'max_samples': params['model']['bagging']['param_grid']['max_samples'],
+        'max_features': params['model']['bagging']['param_grid']['max_features']
+    }
+    
+    bagging = BaggingRegressor(
+        estimator=LinearRegression(),
+        n_estimators=params['model']['bagging']['n_estimators'],
+        random_state=seed+sim_num
+    )
+    
+    grid_search = GridSearchCV(
+        bagging,
+        param_grid,
+        cv=params['model']['bagging']['cv'],
+        scoring='neg_mean_squared_error'
+    )
+    grid_search.fit(X, y)
+    bagged_lr = grid_search.best_estimator_
+    
+    y_pred_bagged = bagged_lr.predict(X)
+    result.update({
+        'insample_bagged': mean_squared_error(y_true, y_pred_bagged),
+        'mse_bagged': mean_squared_error(y, y_pred_bagged),
+        'coef_recovery_bagged': np.mean((
+            np.mean([est.coef_ for est in bagged_lr.estimators_], axis=0) - beta_true
+        )**2),
+        'max_samples_bagged': bagged_lr.max_samples,
+        'max_features_bagged': bagged_lr.max_features
+    })
+
+    # Fit and evaluate Data Smearing
+    param_grid = {
+        'noise_sigma': params['model']['smearing']['param_grid']['noise_sigma']
+    }
+    
+    smearing = DataSmearingRegressor(
+        n_estimators=params['model']['smearing']['n_estimators'],
+        random_state=seed+sim_num
+    )
+    
+    grid_search = GridSearchCV(
+        smearing,
+        param_grid,
+        cv=params['model']['baseline']['cv'],
+        scoring='neg_mean_squared_error'
+    )
+    grid_search.fit(X, y)
+    smearing_reg = grid_search.best_estimator_
+    
+    y_pred_smearing = smearing_reg.predict(X)
+    result.update({
+        'insample_smearing': mean_squared_error(y_true, y_pred_smearing),
+        'mse_smearing': mean_squared_error(y, y_pred_smearing),
+        'coef_recovery_smearing': np.mean((
+            np.mean([est.coef_ for est in smearing_reg.estimators_], axis=0) - beta_true
+        )**2),
+        'noise_sigma_smearing': smearing_reg.noise_sigma
+    })
     
     ## Create penalized scorer factory with true sigma^2
     make_k_scorer = create_penalized_scorer(
-        sigma2=sigma**2,
-        n=X.shape[0],
+        sigma=sigma,
+        n=params['data']['n_train'],
         p=params['data']['n_predictors']
     )
     
@@ -180,9 +246,9 @@ def run_one_dgp_iter(
     rgscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=m_grid,
-        n_replications=params['model']['rgscv']['n_replications'],
+        n_estimators=params['model']['rgscv']['n_estimators'],
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
-        random_state=seed,
+        random_state=seed+sim_num,
         cv=params['model']['rgscv']['cv'],
         scoring=make_k_scorer
     )
@@ -205,9 +271,9 @@ def run_one_dgp_iter(
     gscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=list([params['data']['n_predictors']]),
-        n_replications=1,
+        n_estimators=1,
         n_resample_iter=0,
-        random_state=seed,
+        random_state=seed+sim_num,
         cv=params['model']['rgscv']['cv'],
         scoring=make_k_scorer
     )
@@ -236,18 +302,25 @@ def main(param_path):
     # Generate base design matrix
     X_generators = {
         'orthogonal': generate_orthogonal_X,
-        'banded': generate_banded_X,
-        'block': lambda n_predictors, n_train: generate_block_X(
+        'banded': lambda n_predictors, n_train, seed: generate_banded_X(
+            n_predictors=n_predictors,
+            n_train=n_train,
+            gamma=params['data']['banded_params']['gamma'],
+            seed=seed
+        ),
+        'block': lambda n_predictors, n_train, seed: generate_block_X(
             n_predictors=n_predictors,
             n_train=n_train,
             block_size=params['data']['block_params']['block_size'],
-            within_correlation=params['data']['block_params']['within_correlation']
+            within_correlation=params['data']['block_params']['within_correlation'],
+            seed=seed
         )
     }
     
     X = X_generators[params['data']['covariance_type']](
         params['data']['n_predictors'],
-        params['data']['n_train']
+        params['data']['n_train'],
+        params['simulation']['base_seed']
     )
     
     # Set up generator mapping
@@ -277,12 +350,12 @@ def main(param_path):
     # Main simulation loop with progress bar
     total_sims = params['simulation']['n_sim'] * len(sigmas)
     with tqdm(total=total_sims, desc="Total Progress") as pbar:
-        for sim in range(params['simulation']['n_sim']):
-            seed = params['simulation']['base_seed'] + sim
+        for sim in range(1, params['simulation']['n_sim']+1):
+            seed = params['simulation']['base_seed']
             
             for sigma in sigmas:
                 pbar.set_description(
-                    f"Sim {sim+1}/{params['simulation']['n_sim']}, "
+                    f"Sim {sim}/{params['simulation']['n_sim']}, "
                     f"σ={sigma}, {params['data']['generator_type']}, "
                     f"{params['data']['covariance_type']}"
                 )
@@ -292,7 +365,8 @@ def main(param_path):
                     generator=generator,
                     sigma=sigma,
                     params=params,
-                    seed=seed
+                    seed=seed,
+                    sim_num=sim
                 )
                 all_results.append(result)
                 pbar.update(1)
@@ -316,6 +390,15 @@ def main(param_path):
         'mse_elastic': ['mean', 'std'],
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
+        'insample_bagged': ['mean', 'std'],
+        'mse_bagged': ['mean', 'std'],
+        'coef_recovery_bagged': ['mean', 'std'],
+        'max_samples_bagged': ['mean', 'std'],
+        'max_features_bagged': ['mean', 'std'],
+        'insample_smearing': ['mean', 'std'],
+        'mse_smearing': ['mean', 'std'],
+        'coef_recovery_smearing': ['mean', 'std'],
+        'noise_sigma_smearing': ['mean', 'std'],
         'insample_rgs': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],

@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.metrics import make_scorer
 
-def create_penalized_scorer(sigma2, n, p):
+def create_penalized_scorer(sigma, n, p):
     """
     Create a base scorer function that can be wrapped for each k value.
     
@@ -27,7 +27,7 @@ def create_penalized_scorer(sigma2, n, p):
             mse = (error ** 2).mean()
             
             # Compute penalty using current k value
-            penalty = 2*sigma2/n*k*np.log(p/k)
+            penalty = 2*sigma**2/n*k*np.log(p/k)
             
             # Return negative since sklearn maximizes scores
             return -(mse + penalty)

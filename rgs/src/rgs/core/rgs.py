@@ -164,8 +164,8 @@ class RGSCV(BaseEstimator, RegressorMixin):
         Grid of m values to try, where m is the number of candidates
         to randomly select at each iteration.
     
-    n_replications : int, default=1000
-        Number of replications for the ensemble.
+    n_estimators : int, default=1000
+        Number of estimators for the ensemble.
         
     n_resample_iter : int, default=0
         Number of resampling iterations.
@@ -181,11 +181,11 @@ class RGSCV(BaseEstimator, RegressorMixin):
         If string, uses sklearn's scoring methods.
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
-    def __init__(self, k_max, m_grid, n_replications=1000, n_resample_iter=0, 
+    def __init__(self, k_max, m_grid, n_estimators=1000, n_resample_iter=0, 
                  random_state=None, cv=5, scoring=None):
         self.k_max = k_max
         self.m_grid = m_grid
-        self.n_replications = n_replications
+        self.n_estimators = n_estimators
         self.n_resample_iter = n_resample_iter
         self.random_state = random_state
         self.cv = cv
@@ -199,17 +199,18 @@ class RGSCV(BaseEstimator, RegressorMixin):
             return get_scorer(self.scoring)
         elif callable(self.scoring):
             # self.scoring is our make_k_scorer function
-            return self.scoring(k)
+            scorer = self.scoring(k)
+            return scorer
         else:
             raise ValueError("scoring should be None, a string, or a callable")
         
     def fit(self, X, y):
         """Fit the model using cross-validation to select the best m."""
         # Convert inputs if needed
-        if isinstance(X, pd.DataFrame):
-            X = X.values
-        if isinstance(y, pd.Series):
-            y = y.values
+        # if isinstance(X, pd.DataFrame):
+        #     X = X.values
+        # if isinstance(y, pd.Series):
+        #     y = y.values
 
         # Initialize scores dictionary
         self.cv_scores_ = {k: {m: [] for m in self.m_grid} 
@@ -221,7 +222,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 model = RGS(
                     k_max=self.k_max,
                     m=m,
-                    n_estimators=self.n_replications,
+                    n_estimators=self.n_estimators,
                     n_resample_iter=self.n_resample_iter,
                     random_state=self.random_state
                 )
@@ -249,7 +250,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     model = RGS(
                         k_max=self.k_max,
                         m=m,
-                        n_estimators=self.n_replications,
+                        n_estimators=self.n_estimators,
                         n_resample_iter=self.n_resample_iter,
                         random_state=self.random_state
                     )
@@ -278,7 +279,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
         self.model_ = RGS(
             k_max=self.k_,
             m=self.m_,
-            n_estimators=self.n_replications,
+            n_estimators=self.n_estimators,
             n_resample_iter=self.n_resample_iter,
             random_state=self.random_state
         )

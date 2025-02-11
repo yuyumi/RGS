@@ -1,0 +1,64 @@
+{
+    "simulation": {
+        "n_sim": 10,
+        "base_seed": 42,
+        "sigma": {
+            "type": "pve",
+            "params": {
+                "num_points": 7,
+                "min_pve": 0.05,
+                "max_pve": 0.75
+            }
+        }
+    },
+    "data": {
+        "n_predictors": 100,
+        "n_train": 1000,
+        "signal_proportion": 0.1,
+        "covariance_type": "orthogonal", 
+        "generator_type": "exact",
+        "block_params": {
+            "block_size": 50,
+            "within_correlation": 0.7
+        },
+        "banded_params": {
+            "gamma": 0.65
+        }
+    },
+    "model": {
+        "k_max": 35,
+        "m_grid": {
+            "type": "geometric",
+            "params": {
+                "base": 2,
+                "num_points": 10
+            }
+        },
+        "rgscv": {
+            "n_estimators": 1000,
+            "n_resample_iter": 7,
+            "cv": 5
+        },
+        "bagging": {
+            "n_estimators": 1000,
+            "param_grid": {
+                "max_samples": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+                "max_features": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+            },
+            "cv": 5
+        },
+        "smearing": {
+            "n_estimators": 1000,
+            "param_grid": {
+                "noise_sigma": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
+            },
+            "cv": 5
+        },
+        "baseline": {
+            "cv": 10
+        }
+    },
+    "output": {
+        "save_path": "results/raw/"
+    }
+}
