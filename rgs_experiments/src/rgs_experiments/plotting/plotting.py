@@ -23,6 +23,8 @@ class PlottingConfig:
         'lasso': '#2ca02c',
         'ridge': '#ff7f7f', 
         'elastic': '#17becf',
+        'bagged': '#FF8C00',
+        'smearing': '#8B4513',
         'gs': '#e6b3e6',
         'rgs': '#000000'
     }
@@ -36,7 +38,7 @@ class PlottingConfig:
     }
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
-    METHODS = ['lasso', 'ridge', 'elastic', 'gs', 'rgs']
+    METHODS = ['lasso', 'ridge', 'elastic', 'bagged', 'smearing', 'gs', 'rgs']
     
     @classmethod
     def get_metric_label(cls, metric: str) -> str:

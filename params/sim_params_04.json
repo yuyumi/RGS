@@ -5,21 +5,24 @@
         "sigma": {
             "type": "pve",
             "params": {
-                "num_points": 10,
-                "min_pve": 0.01,
-                "max_pve": 0.8
+                "num_points": 6,
+                "min_pve": 0.1,
+                "max_pve": 0.6
             }
         }
     },
     "data": {
-        "n_predictors": 500,
-        "n_train": 2000,
-        "signal_proportion": 0.02,
+        "n_predictors": 100,
+        "n_train": 1000,
+        "signal_proportion": 0.1,
         "covariance_type": "block", 
-        "generator_type": "exact",
+        "generator_type": "laplace",
         "block_params": {
             "block_size": 50,
             "within_correlation": 0.7
+        },
+        "banded_params": {
+            "gamma": 0.5
         }
     },
     "model": {
@@ -28,16 +31,31 @@
             "type": "geometric",
             "params": {
                 "base": 2,
-                "num_points": 7
+                "num_points": 10
             }
         },
         "rgscv": {
-            "n_replications": 1000,
+            "n_estimators": 500,
             "n_resample_iter": 7,
-            "cv": 1
+            "cv": 5
+        },
+        "bagging": {
+            "n_estimators": 500,
+            "param_grid": {
+                "max_samples": [0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+                "max_features": [1.0]
+            },
+            "cv": 5
+        },
+        "smearing": {
+            "n_estimators": 500,
+            "param_grid": {
+                "noise_sigma": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
+            },
+            "cv": 5
         },
         "baseline": {
-            "cv": 10
+            "cv": 5
         }
     },
     "output": {

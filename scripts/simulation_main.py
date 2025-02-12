@@ -184,10 +184,20 @@ def run_one_dgp_iter(
         bagging,
         param_grid,
         cv=params['model']['bagging']['cv'],
-        scoring='neg_mean_squared_error'
+        scoring='neg_mean_squared_error',
+        refit=True
     )
     grid_search.fit(X, y)
-    bagged_lr = grid_search.best_estimator_
+
+    best_params = grid_search.best_params_
+    bagged_lr = BaggingRegressor(
+        estimator=LinearRegression(),
+        n_estimators=params['model']['bagging']['n_estimators'],
+        max_samples=best_params['max_samples'],
+        max_features=best_params['max_features'],
+        random_state=seed+sim_num
+    )
+    bagged_lr.fit(X, y)
     
     y_pred_bagged = bagged_lr.predict(X)
     result.update({
@@ -214,10 +224,19 @@ def run_one_dgp_iter(
         smearing,
         param_grid,
         cv=params['model']['baseline']['cv'],
-        scoring='neg_mean_squared_error'
+        scoring='neg_mean_squared_error',
+        refit=True  # This ensures we refit on the full dataset
     )
     grid_search.fit(X, y)
-    smearing_reg = grid_search.best_estimator_
+    
+    # Get the best parameters and refit on full dataset
+    best_sigma = grid_search.best_params_['noise_sigma']
+    smearing_reg = DataSmearingRegressor(
+        n_estimators=params['model']['smearing']['n_estimators'],
+        noise_sigma=best_sigma,
+        random_state=seed+sim_num
+    )
+    smearing_reg.fit(X, y)
     
     y_pred_smearing = smearing_reg.predict(X)
     result.update({
@@ -226,7 +245,7 @@ def run_one_dgp_iter(
         'coef_recovery_smearing': np.mean((
             np.mean([est.coef_ for est in smearing_reg.estimators_], axis=0) - beta_true
         )**2),
-        'noise_sigma_smearing': smearing_reg.noise_sigma
+        'noise_sigma_smearing': best_sigma
     })
     
     ## Create penalized scorer factory with true sigma^2
