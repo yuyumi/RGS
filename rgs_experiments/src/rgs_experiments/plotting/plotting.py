@@ -9,12 +9,15 @@ __all__ = [
     'plot_mse_by_sigma',
     'plot_df_by_sigma',
     'plot_insample_by_sigma',
+    'plot_outsample_mse_by_sigma',
     'plot_mse_by_variance_explained',
     'plot_df_by_variance_explained',
     'plot_insample_by_variance_explained',
+    'plot_outsample_mse_by_variance_explained',
     'plot_mse_vs_k',
     'plot_df_vs_k',
-    'plot_insample_vs_k'
+    'plot_insample_vs_k',
+    'plot_outsample_mse_vs_k'
 ]
 
 class PlottingConfig:
@@ -34,6 +37,7 @@ class PlottingConfig:
     METRIC_LABELS = {
         'mse': 'Mean Square Error',
         'insample': 'In-sample Error',
+        'outsample_mse': 'Out-of-sample Mean Square Error',
         'df': 'Degrees of Freedom',
         'coef_recovery': 'Coefficient Recovery Error',
         'support_recovery': 'Support Recovery Accuracy'
@@ -175,7 +179,7 @@ def plot_metric_by_variance_explained(
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
         ax.set_title(f'{PlottingConfig.get_metric_label(metric)} by PVE')
-        ax.legend(loc='upper right' if metric in ['mse', 'insample'] else 'upper left')
+        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
         ax.grid(True, alpha=0.3)
         
         if save_path:
@@ -297,6 +301,9 @@ def plot_df_by_sigma(*args, **kwargs):
 def plot_insample_by_sigma(*args, **kwargs):
     return plot_metric_by_sigma(*args, metric='insample', **kwargs)
 
+def plot_outsample_mse_by_sigma(*args, **kwargs):
+    return plot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
+
 def plot_mse_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='mse', **kwargs)
 
@@ -306,6 +313,9 @@ def plot_df_by_variance_explained(*args, **kwargs):
 def plot_insample_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='insample', **kwargs)
 
+def plot_outsample_mse_by_variance_explained(*args, **kwargs):
+    return plot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
+
 def plot_mse_vs_k(*args, **kwargs):
     return plot_metric_vs_k(*args, metric='mse', **kwargs)
 
@@ -314,3 +324,6 @@ def plot_df_vs_k(*args, **kwargs):
 
 def plot_insample_vs_k(*args, **kwargs):
     return plot_metric_vs_k(*args, metric='insample', **kwargs)
+
+def plot_outsample_mse_vs_k(*args, **kwargs):
+    return plot_metric_vs_k(*args, metric='outsample_mse', **kwargs)
