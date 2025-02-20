@@ -73,10 +73,10 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
         X[start_idx:] = (Q @ X_base)[:remainder]
     
     # Scale to match target covariance
-    X = X * np.sqrt(n_predictors/n_train)
+    X = X * np.sqrt(n_predictors)
     
     # Verify gram matrix structure
-    realized_gram = X.T @ X
+    realized_gram = X.T @ X/(n_train)
     max_diff = np.max(np.abs(realized_gram - gram_matrix))
     print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
     
@@ -133,10 +133,10 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
         X[start_idx:] = (Q @ X_base)[:remainder]
     
     # Scale to match target covariance
-    X = X * np.sqrt(n_predictors/n_train)
+    X = X * np.sqrt(n_predictors)
     
     # Verify gram matrix structure
-    realized_gram = X.T @ X
+    realized_gram = X.T @ X/(n_train)
     max_diff = np.max(np.abs(realized_gram - gram_matrix))
     print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
     

@@ -8,15 +8,17 @@ from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
 from sklearn.metrics import mean_squared_error
 from sklearn.ensemble import BaggingRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, train_test_split
 
 # Import from core RGS package
-from rgs.core.rgs import RGSCV
-from rgs.penalized_score import create_penalized_scorer
+from rgs.core.rgs import RGS, RGSCV
+from rgs.bogdan_penalty import create_bogdan_scorer
+from rgs.aic_penalty import create_aic_scorer
 
 # Import from simulation package
 from rgs_experiments.utils.sim_util_dgs import *
-from rgs_experiments.models.data_smearing import DataSmearingRegressor
+from rgs_experiments.models.data_smearing import SmearedGS
+from rgs_experiments.models.bagging import BaggedGS
 
 def load_params(param_path):
     """Load parameters from JSON file."""
@@ -127,6 +129,21 @@ def run_one_dgp_iter(
             seed=seed+sim_num
         )
     
+    X_train, X_test, y_train, y_test, y_true_train, y_true_test = train_test_split(
+        X, 
+        y,
+        y_true,
+        test_size=params['data']['test_size'],
+        random_state=seed+sim_num,  # Set seed for reproducibility
+    )
+
+    # print(f"X shape: {X.shape}")
+    # print(f"y shape: {y.shape}")
+    # print(f"y_true shape: {y_true.shape}")
+    # print(f"X shape: {X_train.shape}")
+    # print(f"y shape: {y_train.shape}")
+    # print(f"y_true shape: {y_true_train.shape}")
+
     # Fit baseline models with specified CV
     cv = params['model']['baseline']['cv']
     
@@ -138,129 +155,109 @@ def run_one_dgp_iter(
     
     # Fit and evaluate Lasso
     lasso = LassoCV(cv=cv, random_state=seed+sim_num)
-    lasso.fit(X, y)
-    y_pred_lasso = lasso.predict(X)
+    lasso.fit(X_train, y_train)
+    y_pred_lasso = lasso.predict(X_train)
     result.update({
-        'insample_lasso': mean_squared_error(y_true, y_pred_lasso),
-        'mse_lasso': mean_squared_error(y, y_pred_lasso),
+        'insample_lasso': mean_squared_error(y_true_train, y_pred_lasso),
+        'mse_lasso': mean_squared_error(y_train, y_pred_lasso),
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
         'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0))
     })
     
     # Fit and evaluate Ridge
     ridge = RidgeCV(cv=cv)
-    ridge.fit(X, y)
-    y_pred_ridge = ridge.predict(X)
+    ridge.fit(X_train, y_train)
+    y_pred_ridge = ridge.predict(X_train)
     result.update({
-        'insample_ridge': mean_squared_error(y_true, y_pred_ridge),
-        'mse_ridge': mean_squared_error(y, y_pred_ridge),
+        'insample_ridge': mean_squared_error(y_true_train, y_pred_ridge),
+        'mse_ridge': mean_squared_error(y_train, y_pred_ridge),
         'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2)
     })
     
     # Fit and evaluate Elastic Net
     elastic = ElasticNetCV(cv=cv, random_state=seed+sim_num)
-    elastic.fit(X, y)
-    y_pred_elastic = elastic.predict(X)
+    elastic.fit(X_train, y_train)
+    y_pred_elastic = elastic.predict(X_train)
     result.update({
-        'insample_elastic': mean_squared_error(y_true, y_pred_elastic),
-        'mse_elastic': mean_squared_error(y, y_pred_elastic),
+        'insample_elastic': mean_squared_error(y_true_train, y_pred_elastic),
+        'mse_elastic': mean_squared_error(y_train, y_pred_elastic),
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0))
     })
 
-    # Fit and evaluate Bagged Linear Regression
-    param_grid = {
-        'max_samples': params['model']['bagging']['param_grid']['max_samples'],
-        'max_features': params['model']['bagging']['param_grid']['max_features']
-    }
-    
-    bagging = BaggingRegressor(
-        estimator=LinearRegression(),
-        n_estimators=params['model']['bagging']['n_estimators'],
-        random_state=seed+sim_num
-    )
-    
-    grid_search = GridSearchCV(
-        bagging,
-        param_grid,
-        cv=params['model']['bagging']['cv'],
-        scoring='neg_mean_squared_error',
-        refit=True
-    )
-    grid_search.fit(X, y)
-
-    best_params = grid_search.best_params_
-    bagged_lr = BaggingRegressor(
-        estimator=LinearRegression(),
-        n_estimators=params['model']['bagging']['n_estimators'],
-        max_samples=best_params['max_samples'],
-        max_features=best_params['max_features'],
-        random_state=seed+sim_num
-    )
-    bagged_lr.fit(X, y)
-    
-    y_pred_bagged = bagged_lr.predict(X)
-    result.update({
-        'insample_bagged': mean_squared_error(y_true, y_pred_bagged),
-        'mse_bagged': mean_squared_error(y, y_pred_bagged),
-        'coef_recovery_bagged': np.mean((
-            np.mean([est.coef_ for est in bagged_lr.estimators_], axis=0) - beta_true
-        )**2),
-        'max_samples_bagged': bagged_lr.max_samples,
-        'max_features_bagged': bagged_lr.max_features
-    })
-
-    # Fit and evaluate Data Smearing
-    param_grid = {
-        'noise_sigma': params['model']['smearing']['param_grid']['noise_sigma']
-    }
-    
-    smearing = DataSmearingRegressor(
-        n_estimators=params['model']['smearing']['n_estimators'],
-        random_state=seed+sim_num
-    )
-    
-    grid_search = GridSearchCV(
-        smearing,
-        param_grid,
-        cv=params['model']['baseline']['cv'],
-        scoring='neg_mean_squared_error',
-        refit=True  # This ensures we refit on the full dataset
-    )
-    grid_search.fit(X, y)
-    
-    # Get the best parameters and refit on full dataset
-    best_sigma = grid_search.best_params_['noise_sigma']
-    smearing_reg = DataSmearingRegressor(
-        n_estimators=params['model']['smearing']['n_estimators'],
-        noise_sigma=best_sigma,
-        random_state=seed+sim_num
-    )
-    smearing_reg.fit(X, y)
-    
-    y_pred_smearing = smearing_reg.predict(X)
-    result.update({
-        'insample_smearing': mean_squared_error(y_true, y_pred_smearing),
-        'mse_smearing': mean_squared_error(y, y_pred_smearing),
-        'coef_recovery_smearing': np.mean((
-            np.mean([est.coef_ for est in smearing_reg.estimators_], axis=0) - beta_true
-        )**2),
-        'noise_sigma_smearing': best_sigma
-    })
-    
     ## Create penalized scorer factory with true sigma^2
-    make_k_scorer = create_penalized_scorer(
+    make_k_scorer = create_aic_scorer(
         sigma=sigma,
         n=params['data']['n_train'],
         p=params['data']['n_predictors']
     )
+
+    # Fit and evaluate BaggedGS
+    bagged_gs = BaggedGS(
+        k_max=params['model']['k_max'],
+        n_estimators=params['model']['bagged_gs']['n_estimators'],
+        random_state=seed+sim_num,
+        cv=params['model']['bagged_gs']['cv'],
+        scoring=make_k_scorer
+    )
+    bagged_gs.fit(X_train, y_train)
+    
+    y_pred_bagged_gs = bagged_gs.predict(X_train)
+    
+    # Get average coefficients
+    avg_coef_bagged_gs = np.zeros(X.shape[1])
+    for est in bagged_gs.estimators_:
+        coef_, _, _ = est
+        avg_coef_bagged_gs += coef_[bagged_gs.k_]
+    avg_coef_bagged_gs /= len(bagged_gs.estimators_)
+    
+    result.update({
+        'best_k_bagged_gs': bagged_gs.k_,
+        'insample_bagged_gs': mean_squared_error(y_true_train, y_pred_bagged_gs),
+        'mse_bagged_gs': mean_squared_error(y_train, y_pred_bagged_gs),
+        'coef_recovery_bagged_gs': np.mean((avg_coef_bagged_gs - beta_true)**2),
+        'support_recovery_bagged_gs': np.mean(
+            (np.abs(avg_coef_bagged_gs) > 1e-10) == (beta_true != 0)
+        )
+    })
+    
+    # Fit and evaluate SmearedGS
+    smeared_gs = SmearedGS(
+        k_max=params['model']['k_max'],
+        n_estimators=params['model']['smeared_gs']['n_estimators'],
+        noise_scale=params['model']['smeared_gs']['param_grid']['noise_scale'],
+        random_state=seed+sim_num,
+        cv=params['model']['smeared_gs']['cv'],
+        scoring=make_k_scorer
+    )
+    smeared_gs.fit(X_train, y_train)
+    
+    y_pred_smeared_gs = smeared_gs.predict(X_train)
+    
+    # Get average coefficients
+    avg_coef_smeared_gs = np.zeros(X.shape[1])
+    for est in smeared_gs.estimators_:
+        coef_, _, _ = est
+        avg_coef_smeared_gs += coef_[smeared_gs.k_]
+    avg_coef_smeared_gs /= len(smeared_gs.estimators_)
+    
+    result.update({
+        'best_k_smeared_gs': smeared_gs.k_,
+        'best_noise_scale': smeared_gs.noise_scale_,
+        'insample_smeared_gs': mean_squared_error(y_true_train, y_pred_smeared_gs),
+        'mse_smeared_gs': mean_squared_error(y_train, y_pred_smeared_gs),
+        'coef_recovery_smeared_gs': np.mean((avg_coef_smeared_gs - beta_true)**2),
+        'support_recovery_smeared_gs': np.mean(
+            (np.abs(avg_coef_smeared_gs) > 1e-10) == (beta_true != 0)
+        )
+    })
     
     # Calculate m_grid
     m_grid = get_m_grid(
         params['model']['m_grid'],
         params['data']['n_predictors']
     )
-    
+
     # Fit RGSCV with scorer factory
     rgscv = RGSCV(
         k_max=params['model']['k_max'],
@@ -271,15 +268,15 @@ def run_one_dgp_iter(
         cv=params['model']['rgscv']['cv'],
         scoring=make_k_scorer
     )
-    rgscv.fit(X, y)
+    rgscv.fit(X_train, y_train)
     
     # Get predictions using best parameters
-    y_pred_rgs = rgscv.predict(X)
+    y_pred_rgs = rgscv.predict(X_train)
     result.update({
         'best_m': rgscv.m_,
         'best_k': rgscv.k_,
-        'insample_rgs': mean_squared_error(y_true, y_pred_rgs),
-        'mse_rgs': mean_squared_error(y, y_pred_rgs),
+        'insample_rgs': mean_squared_error(y_true_train, y_pred_rgs),
+        'mse_rgs': mean_squared_error(y_train, y_pred_rgs),
         'coef_recovery_rgs': np.mean((rgscv.model_.coef_[rgscv.k_] - beta_true)**2),
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
@@ -296,17 +293,64 @@ def run_one_dgp_iter(
         cv=params['model']['rgscv']['cv'],
         scoring=make_k_scorer
     )
-    gscv.fit(X, y)
+    gscv.fit(X_train, y_train)
     
     # Get predictions using best parameters
-    y_pred_gs = gscv.predict(X)
+    y_pred_gs = gscv.predict(X_train)
     result.update({
-        'best_k_gs': gscv.k_,  # Distinguish from RGS k
-        'insample_gs': mean_squared_error(y_true, y_pred_gs),
-        'mse_gs': mean_squared_error(y, y_pred_gs),
-        'coef_recovery_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
-        'support_recovery_gs': np.mean(
+        'best_k_original_gs': gscv.k_,  # Distinguish from RGS k
+        'insample_original_gs': mean_squared_error(y_true_train, y_pred_gs),
+        'mse_original_gs': mean_squared_error(y_train, y_pred_gs),
+        'coef_recovery_original_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
+        'support_recovery_original_gs': np.mean(
             (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
+        )
+    })
+
+    # Baseline RGS and GS methods
+    true_k = int(params['data']['signal_proportion']*params['data']['n_predictors'])
+    base_rgscv = RGSCV(
+        k_max=true_k,
+        m_grid=m_grid,
+        n_estimators=params['model']['rgscv']['n_estimators'],
+        n_resample_iter=params['model']['rgscv']['n_resample_iter'],
+        k_grid=[true_k],
+        random_state=seed+sim_num,
+        cv=params['model']['rgscv']['cv'],
+        scoring=make_k_scorer
+    )
+    base_rgscv.fit(X_train, y_train)
+    
+    # Get predictions using best parameters
+    y_pred_base_rgs = base_rgscv.predict(X_train)
+    result.update({
+        'best_m_base': base_rgscv.m_,
+        'insample_base_rgs': mean_squared_error(y_true_train, y_pred_base_rgs),
+        'mse_base_rgs': mean_squared_error(y_train, y_pred_base_rgs),
+        'coef_recovery_base_rgs': np.mean((base_rgscv.model_.coef_[base_rgscv.k_] - beta_true)**2),
+        'support_recovery_base_rgs': np.mean(
+            (np.abs(base_rgscv.model_.coef_[base_rgscv.k_]) > 1e-10) == (beta_true != 0)
+        )
+    })
+
+    # Fit Greedy Selection
+    base_gscv = RGS(
+        k_max=true_k,
+        m=params['data']['n_predictors'],
+        n_estimators=1,
+        n_resample_iter=0,
+        random_state=seed+sim_num
+    )
+    base_gscv.fit(X_train, y_train)
+    
+    # Get predictions using best parameters
+    y_pred_base_gs = base_gscv.predict(X_train)
+    result.update({
+        'insample_base_gs': mean_squared_error(y_true_train, y_pred_base_gs),
+        'mse_base_gs': mean_squared_error(y_train, y_pred_base_gs),
+        'coef_recovery_base_gs': np.mean((base_gscv.coef_ - beta_true)**2),
+        'support_recovery_base_gs': np.mean(
+            (np.abs(base_gscv.coef_) > 1e-10) == (beta_true != 0)
         )
     })
     
@@ -397,7 +441,8 @@ def main(param_path):
     summary_metrics = {
         'best_m': ['mean', 'std'],
         'best_k': ['mean', 'std'],
-        'best_k_gs': ['mean', 'std'],
+        'best_k_original_gs': ['mean', 'std'],
+        'best_m_base': ['mean', 'std'],
         'insample_lasso': ['mean', 'std'],
         'mse_lasso': ['mean', 'std'],
         'coef_recovery_lasso': ['mean', 'std'],
@@ -409,23 +454,33 @@ def main(param_path):
         'mse_elastic': ['mean', 'std'],
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
-        'insample_bagged': ['mean', 'std'],
-        'mse_bagged': ['mean', 'std'],
-        'coef_recovery_bagged': ['mean', 'std'],
-        'max_samples_bagged': ['mean', 'std'],
-        'max_features_bagged': ['mean', 'std'],
-        'insample_smearing': ['mean', 'std'],
-        'mse_smearing': ['mean', 'std'],
-        'coef_recovery_smearing': ['mean', 'std'],
-        'noise_sigma_smearing': ['mean', 'std'],
+        'best_k_bagged_gs': ['mean', 'std'],
+        'insample_bagged_gs': ['mean', 'std'],
+        'mse_bagged_gs': ['mean', 'std'],
+        'coef_recovery_bagged_gs': ['mean', 'std'],
+        'support_recovery_bagged_gs': ['mean', 'std'],
+        'best_k_smeared_gs': ['mean', 'std'],
+        'best_noise_scale': ['mean', 'std'],
+        'insample_smeared_gs': ['mean', 'std'],
+        'mse_smeared_gs': ['mean', 'std'],
+        'coef_recovery_smeared_gs': ['mean', 'std'],
+        'support_recovery_smeared_gs': ['mean', 'std'],
         'insample_rgs': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
-        'insample_gs': ['mean', 'std'],
-        'mse_gs': ['mean', 'std'],
-        'coef_recovery_gs': ['mean', 'std'],
-        'support_recovery_gs': ['mean', 'std']
+        'insample_original_gs': ['mean', 'std'],
+        'mse_original_gs': ['mean', 'std'],
+        'coef_recovery_original_gs': ['mean', 'std'],
+        'support_recovery_original_gs': ['mean', 'std'],
+        'insample_base_rgs': ['mean', 'std'],
+        'mse_base_rgs': ['mean', 'std'],
+        'coef_recovery_base_rgs': ['mean', 'std'],
+        'support_recovery_base_rgs': ['mean', 'std'],
+        'insample_base_gs': ['mean', 'std'],
+        'mse_base_gs': ['mean', 'std'],
+        'coef_recovery_base_gs': ['mean', 'std'],
+        'support_recovery_base_gs': ['mean', 'std']
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)

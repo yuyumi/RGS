@@ -182,11 +182,12 @@ class RGSCV(BaseEstimator, RegressorMixin):
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
     def __init__(self, k_max, m_grid, n_estimators=1000, n_resample_iter=0, 
-                 random_state=None, cv=5, scoring=None):
+                 k_grid=None, cv=5, scoring=None, random_state=None):
         self.k_max = k_max
         self.m_grid = m_grid
         self.n_estimators = n_estimators
         self.n_resample_iter = n_resample_iter
+        self.k_grid = range(1, k_max+1) if k_grid is None else k_grid
         self.random_state = random_state
         self.cv = cv
         self.scoring = scoring  # This will be a scorer factory function
@@ -229,12 +230,12 @@ class RGSCV(BaseEstimator, RegressorMixin):
                 model.fit(X, y)
                 
                 # Evaluate for each k
-                for k in range(1, self.k_max + 1):
-                    y_pred = model.predict(X, k=k)
-                    # Get scorer for current k
-                    scorer = self._get_scorer(k)
-                    score = scorer._score_func(y, y_pred)
-                    self.cv_scores_[k][m] = [score]
+                for k in self.k_grid:
+                        y_pred = model.predict(X, k=k)
+                        # Get scorer for current k
+                        scorer = self._get_scorer(k)
+                        score = scorer._score_func(y, y_pred)
+                        self.cv_scores_[k][m] = [score]           
         else:
                 
             # Setup CV splitter
@@ -257,16 +258,16 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     model.fit(X_train, y_train)
                     
                     # Evaluate for each k
-                    for k in range(1, self.k_max + 1):
+                    for k in self.k_grid:
                         y_pred = model.predict(X_val, k=k)
                         # Get scorer for current k
                         scorer = self._get_scorer(k)
                         score = scorer._score_func(y_val, y_pred)
                         self.cv_scores_[k][m].append(score)
-        
+    
         # Find best parameters
         best_params = {}
-        for k in range(1, self.k_max + 1):
+        for k in self.k_grid:
             mean_scores = {m: np.mean(self.cv_scores_[k][m]) for m in self.m_grid}
             best_m = max(mean_scores.items(), key=lambda x: x[1])[0]
             best_params[k] = {'m': best_m, 'score': mean_scores[best_m]}

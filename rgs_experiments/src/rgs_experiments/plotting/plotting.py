@@ -21,11 +21,13 @@ class PlottingConfig:
     """Configuration class for plotting parameters."""
     COLORS = {
         'lasso': '#2ca02c',
-        'ridge': '#ff7f7f', 
+        'ridge': '#ff7f7f',
         'elastic': '#17becf',
-        'bagged': '#FF8C00',
-        'smearing': '#8B4513',
-        'gs': '#e6b3e6',
+        'bagged_gs': '#FF8C00',
+        'smeared_gs': '#8B4513',
+        'base_rgs': '#9467bd',
+        'base_gs': '#e377c2',
+        'original_gs': '#e6b3e6',
         'rgs': '#000000'
     }
     
@@ -38,7 +40,10 @@ class PlottingConfig:
     }
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
-    METHODS = ['lasso', 'ridge', 'elastic', 'bagged', 'smearing', 'gs', 'rgs']
+    METHODS = ['lasso', 'ridge', 'elastic', 
+                'bagged_gs', 'smeared_gs',
+                'base_rgs', 'base_gs',
+                'original_gs', 'rgs']
     
     @classmethod
     def get_metric_label(cls, metric: str) -> str:
