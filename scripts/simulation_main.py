@@ -157,32 +157,38 @@ def run_one_dgp_iter(
     lasso = LassoCV(cv=cv, random_state=seed+sim_num)
     lasso.fit(X_train, y_train)
     y_pred_lasso = lasso.predict(X_train)
+    y_test_lasso = lasso.predict(X_test)
     result.update({
         'insample_lasso': mean_squared_error(y_true_train, y_pred_lasso),
         'mse_lasso': mean_squared_error(y_train, y_pred_lasso),
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
-        'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0))
+        'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
+        'outsample_mse_lasso': mean_squared_error(y_test, y_test_lasso)
     })
     
     # Fit and evaluate Ridge
     ridge = RidgeCV(cv=cv)
     ridge.fit(X_train, y_train)
     y_pred_ridge = ridge.predict(X_train)
+    y_test_ridge = ridge.predict(X_test)
     result.update({
         'insample_ridge': mean_squared_error(y_true_train, y_pred_ridge),
         'mse_ridge': mean_squared_error(y_train, y_pred_ridge),
-        'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2)
+        'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
+        'outsample_mse_ridge': mean_squared_error(y_test, y_test_ridge)
     })
     
     # Fit and evaluate Elastic Net
     elastic = ElasticNetCV(cv=cv, random_state=seed+sim_num)
     elastic.fit(X_train, y_train)
     y_pred_elastic = elastic.predict(X_train)
+    y_test_elastic = elastic.predict(X_test)
     result.update({
         'insample_elastic': mean_squared_error(y_true_train, y_pred_elastic),
         'mse_elastic': mean_squared_error(y_train, y_pred_elastic),
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
-        'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0))
+        'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0)),
+        'outsample_mse_elastic': mean_squared_error(y_test, y_test_elastic)
     })
 
     ## Create penalized scorer factory with true sigma^2
@@ -203,12 +209,12 @@ def run_one_dgp_iter(
     bagged_gs.fit(X_train, y_train)
     
     y_pred_bagged_gs = bagged_gs.predict(X_train)
+    y_test_bagged_gs = bagged_gs.predict(X_test)
     
-    # Get average coefficients
+    # Get average coefficients - now correctly uses updated structure
     avg_coef_bagged_gs = np.zeros(X.shape[1])
-    for est in bagged_gs.estimators_:
-        coef_, _, _ = est
-        avg_coef_bagged_gs += coef_[bagged_gs.k_]
+    for coefs, _, _ in bagged_gs.estimators_:
+        avg_coef_bagged_gs += coefs[bagged_gs.k_]
     avg_coef_bagged_gs /= len(bagged_gs.estimators_)
     
     result.update({
@@ -218,7 +224,8 @@ def run_one_dgp_iter(
         'coef_recovery_bagged_gs': np.mean((avg_coef_bagged_gs - beta_true)**2),
         'support_recovery_bagged_gs': np.mean(
             (np.abs(avg_coef_bagged_gs) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_bagged_gs': mean_squared_error(y_test, y_test_bagged_gs)
     })
     
     # Fit and evaluate SmearedGS
@@ -233,12 +240,12 @@ def run_one_dgp_iter(
     smeared_gs.fit(X_train, y_train)
     
     y_pred_smeared_gs = smeared_gs.predict(X_train)
+    y_test_smeared_gs = smeared_gs.predict(X_test)
     
-    # Get average coefficients
+    # Get average coefficients - now correctly uses updated structure
     avg_coef_smeared_gs = np.zeros(X.shape[1])
-    for est in smeared_gs.estimators_:
-        coef_, _, _ = est
-        avg_coef_smeared_gs += coef_[smeared_gs.k_]
+    for coefs, _, _ in smeared_gs.estimators_:
+        avg_coef_smeared_gs += coefs[smeared_gs.k_]
     avg_coef_smeared_gs /= len(smeared_gs.estimators_)
     
     result.update({
@@ -249,7 +256,8 @@ def run_one_dgp_iter(
         'coef_recovery_smeared_gs': np.mean((avg_coef_smeared_gs - beta_true)**2),
         'support_recovery_smeared_gs': np.mean(
             (np.abs(avg_coef_smeared_gs) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_smeared_gs': mean_squared_error(y_test, y_test_smeared_gs)
     })
     
     # Calculate m_grid
@@ -272,6 +280,7 @@ def run_one_dgp_iter(
     
     # Get predictions using best parameters
     y_pred_rgs = rgscv.predict(X_train)
+    y_test_rgs = rgscv.predict(X_test)
     result.update({
         'best_m': rgscv.m_,
         'best_k': rgscv.k_,
@@ -280,7 +289,8 @@ def run_one_dgp_iter(
         'coef_recovery_rgs': np.mean((rgscv.model_.coef_[rgscv.k_] - beta_true)**2),
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_rgs': mean_squared_error(y_test, y_test_rgs)
     })
 
     # Fit Greedy Selection
@@ -297,6 +307,7 @@ def run_one_dgp_iter(
     
     # Get predictions using best parameters
     y_pred_gs = gscv.predict(X_train)
+    y_test_gs = gscv.predict(X_test)
     result.update({
         'best_k_original_gs': gscv.k_,  # Distinguish from RGS k
         'insample_original_gs': mean_squared_error(y_true_train, y_pred_gs),
@@ -304,7 +315,8 @@ def run_one_dgp_iter(
         'coef_recovery_original_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
         'support_recovery_original_gs': np.mean(
             (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_original_gs': mean_squared_error(y_test, y_test_gs)
     })
 
     # Baseline RGS and GS methods
@@ -323,6 +335,7 @@ def run_one_dgp_iter(
     
     # Get predictions using best parameters
     y_pred_base_rgs = base_rgscv.predict(X_train)
+    y_test_base_rgs = base_rgscv.predict(X_test)
     result.update({
         'best_m_base': base_rgscv.m_,
         'insample_base_rgs': mean_squared_error(y_true_train, y_pred_base_rgs),
@@ -330,7 +343,8 @@ def run_one_dgp_iter(
         'coef_recovery_base_rgs': np.mean((base_rgscv.model_.coef_[base_rgscv.k_] - beta_true)**2),
         'support_recovery_base_rgs': np.mean(
             (np.abs(base_rgscv.model_.coef_[base_rgscv.k_]) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_base_rgs': mean_squared_error(y_test, y_test_base_rgs)
     })
 
     # Fit Greedy Selection
@@ -345,13 +359,15 @@ def run_one_dgp_iter(
     
     # Get predictions using best parameters
     y_pred_base_gs = base_gscv.predict(X_train)
+    y_test_base_gs = base_gscv.predict(X_test)
     result.update({
         'insample_base_gs': mean_squared_error(y_true_train, y_pred_base_gs),
         'mse_base_gs': mean_squared_error(y_train, y_pred_base_gs),
         'coef_recovery_base_gs': np.mean((base_gscv.coef_ - beta_true)**2),
         'support_recovery_base_gs': np.mean(
             (np.abs(base_gscv.coef_) > 1e-10) == (beta_true != 0)
-        )
+        ),
+        'outsample_mse_base_gs': mean_squared_error(y_test, y_test_base_gs)
     })
     
     return result
@@ -447,40 +463,49 @@ def main(param_path):
         'mse_lasso': ['mean', 'std'],
         'coef_recovery_lasso': ['mean', 'std'],
         'support_recovery_lasso': ['mean', 'std'],
+        'outsample_mse_lasso': ['mean', 'std'],  # Added
         'insample_ridge': ['mean', 'std'],
         'mse_ridge': ['mean', 'std'],
         'coef_recovery_ridge': ['mean', 'std'],
+        'outsample_mse_ridge': ['mean', 'std'],  # Added
         'insample_elastic': ['mean', 'std'],
         'mse_elastic': ['mean', 'std'],
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
+        'outsample_mse_elastic': ['mean', 'std'],  # Added
         'best_k_bagged_gs': ['mean', 'std'],
         'insample_bagged_gs': ['mean', 'std'],
         'mse_bagged_gs': ['mean', 'std'],
         'coef_recovery_bagged_gs': ['mean', 'std'],
         'support_recovery_bagged_gs': ['mean', 'std'],
+        'outsample_mse_bagged_gs': ['mean', 'std'],  # Added
         'best_k_smeared_gs': ['mean', 'std'],
         'best_noise_scale': ['mean', 'std'],
         'insample_smeared_gs': ['mean', 'std'],
         'mse_smeared_gs': ['mean', 'std'],
         'coef_recovery_smeared_gs': ['mean', 'std'],
         'support_recovery_smeared_gs': ['mean', 'std'],
+        'outsample_mse_smeared_gs': ['mean', 'std'],  # Added
         'insample_rgs': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
+        'outsample_mse_rgs': ['mean', 'std'],  # Added
         'insample_original_gs': ['mean', 'std'],
         'mse_original_gs': ['mean', 'std'],
         'coef_recovery_original_gs': ['mean', 'std'],
         'support_recovery_original_gs': ['mean', 'std'],
+        'outsample_mse_original_gs': ['mean', 'std'],  # Added
         'insample_base_rgs': ['mean', 'std'],
         'mse_base_rgs': ['mean', 'std'],
         'coef_recovery_base_rgs': ['mean', 'std'],
         'support_recovery_base_rgs': ['mean', 'std'],
+        'outsample_mse_base_rgs': ['mean', 'std'],  # Added
         'insample_base_gs': ['mean', 'std'],
         'mse_base_gs': ['mean', 'std'],
         'coef_recovery_base_gs': ['mean', 'std'],
-        'support_recovery_base_gs': ['mean', 'std']
+        'support_recovery_base_gs': ['mean', 'std'],
+        'outsample_mse_base_gs': ['mean', 'std']  # Added
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)

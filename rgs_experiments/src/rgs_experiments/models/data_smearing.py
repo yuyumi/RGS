@@ -5,10 +5,9 @@ from sklearn.metrics import get_scorer
 
 class SmearedGS(BaseEstimator, RegressorMixin):
     """
-    Cross-validation wrapper for Data Smearing with Greedy Selection (GS).
-    
-    Data smearing involves perturbing the target variable with Gaussian noise,
-    fitting separate models, and aggregating the results.
+    Data Smearing with Greedy Selection and CV for optimal k and noise scale.
+    First creates ensemble by fitting on noise-perturbed targets,
+    then finds optimal k and noise scale for the whole ensemble.
     
     Parameters
     ----------
@@ -16,7 +15,7 @@ class SmearedGS(BaseEstimator, RegressorMixin):
         The maximum number of features to select.
     
     n_estimators : int, default=1000
-        Number of smeared estimators for the ensemble.
+        Number of estimators in the ensemble.
         
     noise_scale : float or list of float, default=1.0
         Scale of Gaussian noise to add. If list, CV selects the best scale.
@@ -53,158 +52,166 @@ class SmearedGS(BaseEstimator, RegressorMixin):
         else:
             raise ValueError("scoring should be None, a string, or a callable")
     
-    def _fit_individual_gs(self, X, y, noise_scale, random_state):
+    def _fit_individual_gs(self, X, y, noise_scale, random_state=None):
         """Fit a single GS model with k_max steps using smeared target."""
-        # Create generator
+        n, p = X.shape
         generator = np.random.RandomState(random_state)
         
-        # Add Gaussian noise to y
+        # Add Gaussian noise to target
         noise = generator.normal(0, noise_scale, size=len(y))
         y_smeared = y + noise
         
         # Center the data
         X_centered = X - X.mean(axis=0)
         y_centered = y_smeared - y_smeared.mean()
+        y_mean = y_smeared.mean()
         
         # Initialize storage for all k steps
-        selected_features = []
-        coef_ = []
-        intercept_ = []
+        coefs = np.zeros((self.k_max + 1, p))
+        intercepts = np.zeros(self.k_max + 1)
+        selected_features = [[] for _ in range(self.k_max + 1)]
+        
+        # For k=0, empty model
+        intercepts[0] = y_mean
         
         # Initial residuals are centered y
         residuals = y_centered.copy()
         
         # Scale X for correlations
-        X_scaled = X_centered / np.sqrt(np.sum(X_centered ** 2, axis=0) + 1e-10)
+        X_norms = np.sqrt(np.sum(X_centered ** 2, axis=0) + 1e-10)
+        X_scaled = X_centered / X_norms
         
-        # Greedy forward selection for k_max steps
-        available_features = set(range(X.shape[1]))
-        selected_features_set = set()
+        # Greedy forward selection
+        selected_set = set()
         
-        for k in range(self.k_max + 1):
-            if k == 0:
-                # For k=0, empty model
-                coef_.append(np.zeros(X.shape[1]))
-                intercept_.append(y_smeared.mean())
-                selected_features.append([])
+        for k in range(1, self.k_max + 1):
+            # Get remaining features
+            remaining = list(set(range(p)) - selected_set)
+            if not remaining:
+                # If we've selected all features, just copy the previous step
+                coefs[k] = coefs[k-1]
+                intercepts[k] = intercepts[k-1]
+                selected_features[k] = selected_features[k-1].copy()
                 continue
                 
-            # Compute correlations with residuals for remaining features
-            remaining_features = list(available_features - selected_features_set)
-            if not remaining_features:
-                # Handle case where we've used all features
-                coef_.append(coef_[-1])
-                intercept_.append(intercept_[-1])
-                selected_features.append(selected_features[-1])
-                continue
-                
-            correlations = np.abs(X_scaled[:, remaining_features].T @ residuals)
+            # Calculate correlations with current residuals
+            correlations = np.abs(X_scaled[:, remaining].T @ residuals)
             
-            # Select feature with highest correlation
-            best_idx = remaining_features[np.argmax(correlations)]
-            selected_features_set.add(best_idx)
-            current_features = list(selected_features_set)
-            selected_features.append(current_features)
+            # Select best feature
+            best_idx_pos = np.argmax(correlations)
+            best_feature = remaining[best_idx_pos]
+            selected_set.add(best_feature)
+            selected_features[k] = list(selected_set)
             
             # Fit least squares on selected features
-            X_selected = X_centered[:, current_features]
-            beta = np.linalg.lstsq(X_selected, y_centered, rcond=None)[0]
+            features = selected_features[k]
+            X_selected = X_centered[:, features]
+            beta, *_ = np.linalg.lstsq(X_selected, y_centered, rcond=None)
             
-            # Update model coefficients
-            coef_k = np.zeros(X.shape[1])
-            coef_k[current_features] = beta
-            coef_.append(coef_k)
-            intercept_.append(y_smeared.mean())
+            # Update coefficients and intercept
+            coefs[k, features] = beta
+            intercepts[k] = y_mean
             
             # Update residuals
             residuals = y_centered - X_selected @ beta
-            
-        return coef_, intercept_, selected_features
         
+        return coefs, intercepts, selected_features
+    
     def fit(self, X, y):
-        """Fit the smeared ensemble using cross-validation to select the best k and noise scale."""
+        """
+        Fit the ensemble and find optimal k and noise_scale through cross-validation.
+        """
         # Convert noise_scale to list if it's a single value
         noise_scales = self.noise_scale if isinstance(self.noise_scale, list) else [self.noise_scale]
         
-        # Initialize scores dictionary for each combination of k and noise_scale
-        self.cv_scores_ = {(k, scale): [] for k in range(1, self.k_max + 1) 
-                           for scale in noise_scales}
-        
         if self.cv == 1:
-            # No CV - fit on full dataset and evaluate
+            # No CV - fit on full dataset and evaluate all combinations
             estimator_sets = {scale: [] for scale in noise_scales}
             
+            # Fit all ensemble members for each noise scale
             for scale in noise_scales:
                 for i in range(self.n_estimators):
-                    coef_, intercept_, features = self._fit_individual_gs(
-                        X, y, scale, 
-                        self.random_state + i if self.random_state else None
+                    seed = None if self.random_state is None else self.random_state + i
+                    coefs, intercepts, features = self._fit_individual_gs(
+                        X, y, scale, random_state=seed
                     )
-                    estimator_sets[scale].append((coef_, intercept_, features))
-                
-                # Evaluate each k with this noise scale
+                    estimator_sets[scale].append((coefs, intercepts, features))
+            
+            # Evaluate all combinations of k and noise_scale
+            self.cv_scores_ = {}
+            for scale in noise_scales:
                 for k in range(1, self.k_max + 1):
-                    y_pred = self._predict_k_with_estimators(X, k, estimator_sets[scale])
+                    y_pred = self._predict_with_k(X, k, estimator_sets[scale])
                     scorer = self._get_scorer(k)
                     score = scorer._score_func(y, y_pred)
-                    self.cv_scores_[(k, scale)] = [score]
-        else:
-            # Setup CV splitter
-            cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
-                            random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+                    self.cv_scores_[(k, scale)] = score
             
-            # Perform CV
+            # Find best parameters
+            best_params = max(self.cv_scores_.items(), key=lambda x: x[1])[0]
+            self.k_, self.noise_scale_ = best_params
+            self.estimators_ = estimator_sets[self.noise_scale_]
+            
+        else:
+            # Setup CV
+            cv_splitter = KFold(n_splits=self.cv, shuffle=True, 
+                           random_state=self.random_state) if isinstance(self.cv, int) else self.cv
+            
+            # Initialize scores dictionary
+            self.cv_scores_ = {(k, scale): [] for k in range(1, self.k_max + 1) 
+                             for scale in noise_scales}
+            
+            # For each CV fold
             for train_idx, val_idx in cv_splitter.split(X):
                 X_train, X_val = X[train_idx], X[val_idx]
                 y_train, y_val = y[train_idx], y[val_idx]
                 
                 # For each noise scale
+                fold_estimators = {scale: [] for scale in noise_scales}
+                
                 for scale in noise_scales:
                     # Fit ensemble on training data
-                    fold_estimators = []
                     for i in range(self.n_estimators):
-                        coef_, intercept_, features = self._fit_individual_gs(
-                            X_train, y_train, scale,
-                            self.random_state + i if self.random_state else None
+                        seed = None if self.random_state is None else self.random_state + i
+                        coefs, intercepts, features = self._fit_individual_gs(
+                            X_train, y_train, scale, random_state=seed
                         )
-                        fold_estimators.append((coef_, intercept_, features))
-                    
-                    # Evaluate each k using the full ensemble
+                        fold_estimators[scale].append((coefs, intercepts, features))
+                
+                    # Evaluate each k using the ensemble with this noise scale
                     for k in range(1, self.k_max + 1):
-                        y_pred = self._predict_k_with_estimators(X_val, k, fold_estimators)
+                        y_pred = self._predict_with_k(X_val, k, fold_estimators[scale])
                         scorer = self._get_scorer(k)
                         score = scorer._score_func(y_val, y_pred)
                         self.cv_scores_[(k, scale)].append(score)
-        
-        # Find optimal k and noise_scale
-        mean_scores = {params: np.mean(scores) 
-                      for params, scores in self.cv_scores_.items()}
-        
-        best_params = max(mean_scores.items(), key=lambda x: x[1])[0]
-        self.k_, self.noise_scale_ = best_params
-        
-        # Fit final ensemble with best parameters
-        self.estimators_ = []
-        for i in range(self.n_estimators):
-            coef_, intercept_, features = self._fit_individual_gs(
-                X, y, self.noise_scale_, 
-                self.random_state + i if self.random_state else None
-            )
-            self.estimators_.append((coef_, intercept_, features))
+            
+            # Find best parameters based on average CV score
+            mean_scores = {params: np.mean(scores) 
+                         for params, scores in self.cv_scores_.items()}
+            best_params = max(mean_scores.items(), key=lambda x: x[1])[0]
+            self.k_, self.noise_scale_ = best_params
+            
+            # Fit final ensemble on full dataset with best noise scale
+            self.estimators_ = []
+            for i in range(self.n_estimators):
+                seed = None if self.random_state is None else self.random_state + i
+                coefs, intercepts, features = self._fit_individual_gs(
+                    X, y, self.noise_scale_, random_state=seed
+                )
+                self.estimators_.append((coefs, intercepts, features))
         
         return self
     
-    def _predict_k_with_estimators(self, X, k, estimators):
-        """Make predictions for a specific k using given estimators."""
-        predictions = np.zeros((len(estimators), X.shape[0]))
-        for i, (coef_, intercept_, _) in enumerate(estimators):
-            predictions[i] = X @ coef_[k] + intercept_[k]
+    def _predict_with_k(self, X, k, estimators):
+        """Make predictions using k features for all estimators."""
+        n_samples = X.shape[0]
+        predictions = np.zeros((len(estimators), n_samples))
+        
+        for i, (coefs, intercepts, _) in enumerate(estimators):
+            predictions[i] = X @ coefs[k] + intercepts[k]
+            
+        # Average predictions across estimators
         return np.mean(predictions, axis=0)
     
-    def _predict_k(self, X, k):
-        """Make predictions for a specific k using the fitted ensemble."""
-        return self._predict_k_with_estimators(X, k, self.estimators_)
-    
     def predict(self, X):
-        """Make predictions using the fitted ensemble with best k."""
-        return self._predict_k(X, self.k_)
+        """Predict using the optimal k value."""
+        return self._predict_with_k(X, self.k_, self.estimators_)
