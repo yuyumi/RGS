@@ -15,3 +15,6 @@ rgs_experiments/results/**/*.pkl
 rgs_experiments/results/**/*.npy
 !rgs_experiments/results/**/.gitkeep
 results/raw/*.json
+params/*.json
+notebooks/*
+old_params/*

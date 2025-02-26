@@ -37,9 +37,11 @@ def create_plots_for_result(
         'mse_sigma': (plot_mse_by_sigma, {}),
         'df_sigma': (plot_df_by_sigma, {}),
         'insample_sigma': (plot_insample_by_sigma, {}),
+        'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
         'mse_pve': (plot_mse_by_variance_explained, {}),
         'df_pve': (plot_df_by_variance_explained, {}),
-        'insample_pve': (plot_insample_by_variance_explained, {})
+        'insample_pve': (plot_insample_by_variance_explained, {}),
+        'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
     }
     
     # Generate basic plots

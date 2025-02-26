@@ -24,12 +24,12 @@ class PlottingConfig:
     """Configuration class for plotting parameters."""
     COLORS = {
         'lasso': '#2ca02c',
-        'ridge': '#ff7f7f',
+        # 'ridge': '#ff7f7f',
         'elastic': '#17becf',
         'bagged_gs': '#FF8C00',
         'smeared_gs': '#8B4513',
-        'base_rgs': '#9467bd',
-        'base_gs': '#e377c2',
+        # 'base_rgs': '#9467bd',
+        # 'base_gs': '#e377c2',
         'original_gs': '#e6b3e6',
         'rgs': '#000000'
     }
@@ -44,15 +44,34 @@ class PlottingConfig:
     }
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
-    METHODS = ['lasso', 'ridge', 'elastic', 
+    METHODS = ['lasso', 
+            #    'ridge',
+                'elastic', 
                 'bagged_gs', 'smeared_gs',
-                'base_rgs', 'base_gs',
+                # 'base_rgs', 'base_gs',
                 'original_gs', 'rgs']
+    
+    METHOD_LABELS = {
+        'lasso': 'Lasso',
+        'ridge': 'Ridge',
+        'elastic': 'Elastic',
+        'bagged_gs': 'Bagged GS',
+        'smeared_gs': 'Smeared GS',
+        'base_rgs': 'Base RGS',
+        'base_gs': 'Base GS',
+        'original_gs': 'GS',  # Changed from 'Original_GS' to just 'GS'
+        'rgs': 'RGS'
+    }
     
     @classmethod
     def get_metric_label(cls, metric: str) -> str:
         """Get formatted label for a given metric."""
         return cls.METRIC_LABELS.get(metric, metric.replace('_', ' ').title())
+    
+    @classmethod
+    def get_method_label(cls, method: str) -> str:
+        """Get formatted label for a method."""
+        return cls.METHOD_LABELS.get(method, method.upper())
 
 def get_available_methods(df: pd.DataFrame, metric_prefix: str) -> List[str]:
     """Get list of available methods based on column prefixes."""
@@ -107,9 +126,9 @@ def plot_metric_by_sigma(
             grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
             
             ax.plot(grouped.index, grouped['mean'],
-                   marker='o',
-                   color=PlottingConfig.COLORS[method],
-                   label=method.upper())
+                marker='o',
+                color=PlottingConfig.COLORS[method],
+                label=PlottingConfig.get_method_label(method))
                    
             if show_std:
                 ax.fill_between(
@@ -162,9 +181,9 @@ def plot_metric_by_variance_explained(
             grouped = df.groupby('var_explained')[metric_col].agg(['mean', 'std'])
             
             ax.plot(grouped.index, grouped['mean'],
-                   marker='o',
-                   color=PlottingConfig.COLORS[method],
-                   label=method.upper())
+                marker='o',
+                color=PlottingConfig.COLORS[method],
+                label=PlottingConfig.get_method_label(method))
                    
             if show_std:
                 ax.fill_between(
@@ -242,9 +261,9 @@ def plot_metric_vs_k(
             metric_col = f'{metric}_{method}'
             metric_value = df_sigma[metric_col].mean()
             ax.axhline(y=metric_value, 
-                      color=PlottingConfig.COLORS[method],
-                      linestyle='--',
-                      label=f'{method.upper()}')
+                color=PlottingConfig.COLORS[method],
+                linestyle='--',
+                label=PlottingConfig.get_method_label(method))
         
         # Plot k-dependent methods
         if 'best_k' in df_sigma.columns:
@@ -261,9 +280,9 @@ def plot_metric_vs_k(
                     k_stds.append(k_data.std())
                 
                 ax.plot(k_values, k_metrics,
-                       marker='o',
-                       color=PlottingConfig.COLORS[method],
-                       label=method.upper())
+                        marker='o',
+                        color=PlottingConfig.COLORS[method],
+                        label=PlottingConfig.get_method_label(method))
                        
                 ax.fill_between(
                     k_values,
