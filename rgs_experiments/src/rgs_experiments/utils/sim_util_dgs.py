@@ -84,30 +84,55 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
 
 def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123):
     """
-    Generate a design matrix X with block correlation structure.
+    Generate a design matrix X with block correlation structure where columns are grouped
+    by their indices modulo block_size.
+    
+    This implementation follows the same pattern as generate_banded_X, but with a block
+    correlation structure instead of AR(1).
+    
+    Parameters:
+    -----------
+    n_predictors : int
+        Number of predictor variables/columns in X
+    n_train : int
+        Number of samples/rows in X
+    block_size : int
+        Size of each block. n_predictors must be divisible by block_size
+    within_correlation : float, default=0.7
+        Correlation between variables within the same block
+    seed : int, default=123
+        Random seed for reproducibility
+        
+    Returns:
+    --------
+    X : ndarray of shape (n_train, n_predictors)
+        Design matrix with the specified block correlation structure
     """
+    import numpy as np
+    from scipy.stats import ortho_group
+    
     np.random.seed(seed)
     
     # Verify parameters
     if n_predictors % block_size != 0:
         raise ValueError("n_predictors must be divisible by block_size")
     
-    n_blocks = n_predictors // block_size
-    
-    # Create block correlation matrix
+    # Create correlation matrix
     gram_matrix = np.zeros((n_predictors, n_predictors))
-    for i in range(n_blocks):
-        start_idx = i * block_size
-        end_idx = (i + 1) * block_size
-        block = np.ones((block_size, block_size)) * within_correlation
-        np.fill_diagonal(block, 1.0)  # Set diagonal to 1
-        gram_matrix[start_idx:end_idx, start_idx:end_idx] = block
+    
+    # Fill with block structure - ones on diagonal and within_correlation for same block
+    for i in range(n_predictors):
+        for j in range(n_predictors):
+            if i == j:  # Diagonal
+                gram_matrix[i, j] = 1.0
+            elif i % block_size == j % block_size:  # Same block
+                gram_matrix[i, j] = within_correlation
     
     # Compute eigendecomposition
     eigenvals, eigenvecs = np.linalg.eigh(gram_matrix)
     
     if np.any(eigenvals < -1e-10):
-        raise ValueError("Correlation matrix has negative eigenvalues")
+        raise ValueError(f"Correlation matrix has negative eigenvalues: {min(eigenvals):.2e}")
     
     # Create base matrix with desired covariance
     X_base = eigenvecs @ np.diag(np.sqrt(np.abs(eigenvals))) @ eigenvecs.T
@@ -139,6 +164,36 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     realized_gram = X.T @ X/(n_train)
     max_diff = np.max(np.abs(realized_gram - gram_matrix))
     print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
+    
+    # Verify block structure
+    for b in range(min(5, block_size)):  # Show just first 5 blocks
+        block_cols = [i for i in range(n_predictors) if i % block_size == b]
+        
+        # Extract correlation sub-matrix for this block
+        block_gram = realized_gram[np.ix_(block_cols, block_cols)]
+        
+        # Calculate mean off-diagonal correlation
+        off_diag = block_gram.copy()
+        np.fill_diagonal(off_diag, 0)  # Zero out diagonal
+        avg_corr = np.sum(off_diag) / (len(block_cols) * (len(block_cols) - 1)) if len(block_cols) > 1 else 0
+        
+        print(f"Block {b} - Mean correlation: {avg_corr:.6f} (target: {within_correlation:.6f})")
+    
+    if block_size > 5:
+        print(f"... and {block_size - 5} more blocks with similar structure")
+    
+    # Find maximum between-block correlation
+    max_between = 0
+    max_between_idx = None
+    for i in range(n_predictors):
+        for j in range(i+1, n_predictors):
+            if i % block_size != j % block_size:  # Different blocks
+                if abs(realized_gram[i, j]) > max_between:
+                    max_between = abs(realized_gram[i, j])
+                    max_between_idx = (i, j)
+                    
+    if max_between_idx:
+        print(f"Maximum between-block correlation: {max_between:.6e} at indices {max_between_idx}")
     
     return X
 
