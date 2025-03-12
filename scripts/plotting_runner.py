@@ -34,12 +34,12 @@ def create_plots_for_result(
     
     # Define plot configurations
     plot_types = {
-        'mse_sigma': (plot_mse_by_sigma, {}),
-        'df_sigma': (plot_df_by_sigma, {}),
-        'insample_sigma': (plot_insample_by_sigma, {}),
-        'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
-        'mse_pve': (plot_mse_by_variance_explained, {}),
-        'df_pve': (plot_df_by_variance_explained, {}),
+        # 'mse_sigma': (plot_mse_by_sigma, {}),
+        # 'df_sigma': (plot_df_by_sigma, {}),
+        # 'insample_sigma': (plot_insample_by_sigma, {}),
+        # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
+        # 'mse_pve': (plot_mse_by_variance_explained, {}),
+        # 'df_pve': (plot_df_by_variance_explained, {}),
         'insample_pve': (plot_insample_by_variance_explained, {}),
         'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
     }
@@ -58,9 +58,9 @@ def create_plots_for_result(
     k_plot_sigmas = [sigma_values[0], sigma_values[len(sigma_values)//2], sigma_values[-1]]
     
     k_plot_types = {
-        'mse_vs_k': plot_mse_vs_k,
-        'df_vs_k': plot_df_vs_k,
-        'insample_vs_k': plot_insample_vs_k
+        # 'mse_vs_k': plot_mse_vs_k,
+        # 'df_vs_k': plot_df_vs_k,
+        # 'insample_vs_k': plot_insample_vs_k
     }
     
     for sigma in k_plot_sigmas:

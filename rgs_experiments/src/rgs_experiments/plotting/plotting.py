@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.ticker as ticker
 from typing import Optional, List, Dict
 from pathlib import Path
 
@@ -23,14 +24,14 @@ __all__ = [
 class PlottingConfig:
     """Configuration class for plotting parameters."""
     COLORS = {
-        'lasso': '#2ca02c',
+        'lasso': '#5D4A98',
         # 'ridge': '#ff7f7f',
-        'elastic': '#17becf',
-        'bagged_gs': '#FF8C00',
-        'smeared_gs': '#8B4513',
+        'elastic': '#2C858D',
+        'bagged_gs': '#74A9CF',
+        'smeared_gs': '#B58500',
         # 'base_rgs': '#9467bd',
         # 'base_gs': '#e377c2',
-        'original_gs': '#e6b3e6',
+        'original_gs': '#FD8D3C',
         'rgs': '#000000'
     }
     
@@ -91,6 +92,72 @@ def create_figure() -> tuple:
     """Create and return a new figure with standard size."""
     return plt.subplots(figsize=(7, 5))
 
+def enhance_log_axis(ax):
+    """Apply consistent log axis formatting with specific labeled ticks."""
+    # Set major ticks at powers of 10
+    ax.yaxis.set_major_locator(ticker.LogLocator(base=10.0, numticks=10))
+    
+    # Create specific tick values for the y-axis
+    def specific_log_ticks(vmin, vmax):
+        ticks = []
+        base = 10.0
+        # Find the decade range
+        if vmin <= 0:
+            vmin = 1e-10  # Small positive value
+        
+        # Determine the exponent range
+        vmin_log = np.log(vmin) / np.log(base)
+        vmax_log = np.log(vmax) / np.log(base)
+        
+        start_exp = np.floor(vmin_log)
+        end_exp = np.ceil(vmax_log)
+        
+        for exp in range(int(start_exp), int(end_exp) + 1):
+            # Add specific values within each decade
+            for multiplier in [1, 2.5, 5, 7.5]:
+                tick = multiplier * (base ** exp)
+                if vmin <= tick <= vmax:
+                    ticks.append(tick)
+        
+        return np.array(ticks)
+    
+    # Create a manual locator that uses our function to generate tick positions
+    class ManualLogLocator(ticker.Locator):
+        def __init__(self, tick_function):
+            self.tick_function = tick_function
+            
+        def tick_values(self, vmin, vmax):
+            return self.tick_function(vmin, vmax)
+            
+        def __call__(self):
+            # Get the current axis limits
+            vmin, vmax = self.axis.get_view_interval()
+            return self.tick_values(vmin, vmax)
+    
+    # Apply our custom locator
+    ax.yaxis.set_major_locator(ManualLogLocator(specific_log_ticks))
+    # Remove minor locator
+    ax.yaxis.set_minor_locator(ticker.NullLocator())
+    
+    # Use a simple formatter that shows all values
+    formatter = ticker.FuncFormatter(lambda x, pos: "{:.1f}".format(x))
+    ax.yaxis.set_major_formatter(formatter)
+    
+    # Ensure grid lines
+    ax.grid(which='major', linestyle='-', alpha=0.3)
+
+def format_x_axis_decimal(ax):
+    """Format x-axis to show values at 0.1 intervals."""
+    # Set x-axis ticks at 0.1 intervals
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(0.1))
+    # Format with one decimal place
+    ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+    # Add minor ticks at 0.05 intervals
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+    # Add grid
+    ax.grid(which='major', axis='x', linestyle='-', alpha=0.3)
+    ax.grid(which='minor', axis='x', linestyle=':', alpha=0.2)
+
 def plot_metric_by_sigma(
     results_path: Path,
     metric: str = 'mse',
@@ -140,9 +207,11 @@ def plot_metric_by_sigma(
                 )
         
         ax.set_yscale('log')
+        enhance_log_axis(ax)
+        
         ax.set_xlabel('Sigma (Noise Level)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.set_title(f'{PlottingConfig.get_metric_label(metric)} by Sigma Level')
+        # Title removed
         ax.legend(loc='upper left')
         ax.grid(True, alpha=0.3)
         
@@ -195,9 +264,14 @@ def plot_metric_by_variance_explained(
                 )
         
         ax.set_yscale('log')
+        enhance_log_axis(ax)
+        
+        # Format x-axis with decimal intervals
+        format_x_axis_decimal(ax)
+        
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.set_title(f'{PlottingConfig.get_metric_label(metric)} by PVE')
+        # Title removed
         ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
         ax.grid(True, alpha=0.3)
         
@@ -293,9 +367,12 @@ def plot_metric_vs_k(
                 )
         
         ax.set_yscale('log')
+        enhance_log_axis(ax)
+        
         ax.set_xlabel('k')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.set_title(f'{PlottingConfig.get_metric_label(metric)} vs k (σ = {target_sigma:.2f})')
+        # Modified to include sigma in the axis label instead of title
+        ax.set_xlabel(f'k (σ = {target_sigma:.2f})')
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
         
