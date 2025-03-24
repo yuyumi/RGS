@@ -32,7 +32,8 @@ def run_multiple_simulations(params_dir='params', pattern=None):
         print('='*80)
         
         try:
-            results_df, summary = run_simulation(param_file)
+            # Update to capture all four return values
+            results_df, summary, timing_df, timing_summary = run_simulation(param_file)
             print(f"Simulation completed successfully: {param_file.name}")
         except Exception as e:
             print(f"Error running simulation {param_file.name}:")

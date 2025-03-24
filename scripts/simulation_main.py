@@ -99,6 +99,58 @@ def get_m_grid(grid_params, n_predictors):
         return grid_params['values']
     else:
         raise ValueError(f"Unknown m_grid type: {grid_params['type']}")
+    
+def check_matrix_rank(X):
+    """
+    Check if a matrix X is full rank and provide diagnostic information.
+    
+    Parameters
+    ----------
+    X : ndarray
+        The design matrix to check
+        
+    Returns
+    -------
+    dict
+        Dictionary containing rank information and diagnostics
+    """
+    import numpy as np
+    from scipy import linalg
+    
+    n, p = X.shape
+    min_dim = min(n, p)
+    
+    # Calculate rank using SVD
+    # SVD is more numerically stable than np.linalg.matrix_rank
+    u, s, vh = linalg.svd(X, full_matrices=False)
+    
+    # Get the rank (number of non-zero singular values, with tolerance)
+    tol = s.max() * max(X.shape) * np.finfo(s.dtype).eps
+    rank = np.sum(s > tol)
+    
+    # Calculate condition number
+    condition_number = s[0] / s[-1] if s[-1] > tol else np.inf
+    
+    # Check if X'X is positive definite
+    is_pos_def = True
+    try:
+        # Try Cholesky decomposition - will fail if not positive definite
+        linalg.cholesky(X.T @ X)
+    except linalg.LinAlgError:
+        is_pos_def = False
+    
+    # Prepare results
+    results = {
+        'is_full_rank': rank == min_dim,
+        'rank': rank,
+        'min_dimension': min_dim,
+        'condition_number': condition_number,
+        'smallest_singular_value': s[-1],
+        'largest_singular_value': s[0],
+        'XTX_is_positive_definite': is_pos_def
+    }
+    
+    return results
 
 def run_one_dgp_iter(
     X,
@@ -109,6 +161,12 @@ def run_one_dgp_iter(
     sim_num
 ):
     """Run one iteration of the simulation for a specific DGP setting."""
+    # Dictionary to store timing information
+    timing_results = {
+        'simulation': sim_num,
+        'sigma': sigma
+    }
+    
     # Get generator-specific parameters if needed
     if params['data']['generator_type'] in ['nonlinear', 'inexact']:
         generator_params = params['data'].get('generator_params', {})
@@ -137,15 +195,8 @@ def run_one_dgp_iter(
         random_state=seed+sim_num,  # Set seed for reproducibility
     )
 
-    # print(f"X shape: {X.shape}")
-    # print(f"y shape: {y.shape}")
-    # print(f"y_true shape: {y_true.shape}")
-    # print(f"X shape: {X_train.shape}")
-    # print(f"y shape: {y_train.shape}")
-    # print(f"y_true shape: {y_true_train.shape}")
-
-    # Fit baseline models with specified CV
-    cv = params['model']['baseline']['cv']
+    # Number of training samples for df calculation
+    n_train = y_train.shape[0]
     
     # Initialize result dictionary
     result = {
@@ -153,45 +204,82 @@ def run_one_dgp_iter(
         'sigma': sigma
     }
     
+    # Fit baseline models with specified CV
+    cv = params['model']['baseline']['cv']
+    
     # Fit and evaluate Lasso
+    start_time = time.time()
     lasso = LassoCV(cv=cv, random_state=seed+sim_num)
     lasso.fit(X_train, y_train)
+    lasso_time = time.time() - start_time
+    timing_results['time_lasso'] = lasso_time
+    
     y_pred_lasso = lasso.predict(X_train)
     y_test_lasso = lasso.predict(X_test)
+    
+    mse_lasso = mean_squared_error(y_train, y_pred_lasso)
+    insample_lasso = mean_squared_error(y_true_train, y_pred_lasso)
+    # Calculate degrees of freedom using the formula: df = (n/2*sigma^2) * (insample_error - mse + sigma^2)
+    error_diff_lasso = insample_lasso - mse_lasso + sigma**2
+    df_lasso = (n_train / (2 * sigma**2)) * error_diff_lasso
+    
     result.update({
-        'insample_lasso': mean_squared_error(y_true_train, y_pred_lasso),
-        'mse_lasso': mean_squared_error(y_train, y_pred_lasso),
+        'insample_lasso': insample_lasso,
+        'mse_lasso': mse_lasso,
+        'df_lasso': df_lasso,
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
         'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
         'outsample_mse_lasso': mean_squared_error(y_test, y_test_lasso)
     })
     
     # Fit and evaluate Ridge
+    start_time = time.time()
     ridge = RidgeCV(cv=cv)
     ridge.fit(X_train, y_train)
+    ridge_time = time.time() - start_time
+    timing_results['time_ridge'] = ridge_time
+    
     y_pred_ridge = ridge.predict(X_train)
     y_test_ridge = ridge.predict(X_test)
+    
+    mse_ridge = mean_squared_error(y_train, y_pred_ridge)
+    insample_ridge = mean_squared_error(y_true_train, y_pred_ridge)
+    error_diff_ridge = insample_ridge - mse_ridge + sigma**2
+    df_ridge = (n_train / (2 * sigma**2)) * error_diff_ridge
+    
     result.update({
-        'insample_ridge': mean_squared_error(y_true_train, y_pred_ridge),
-        'mse_ridge': mean_squared_error(y_train, y_pred_ridge),
+        'insample_ridge': insample_ridge,
+        'mse_ridge': mse_ridge,
+        'df_ridge': df_ridge,
         'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
         'outsample_mse_ridge': mean_squared_error(y_test, y_test_ridge)
     })
     
     # Fit and evaluate Elastic Net
+    start_time = time.time()
     elastic = ElasticNetCV(cv=cv, random_state=seed+sim_num)
     elastic.fit(X_train, y_train)
+    elastic_time = time.time() - start_time
+    timing_results['time_elastic'] = elastic_time
+    
     y_pred_elastic = elastic.predict(X_train)
     y_test_elastic = elastic.predict(X_test)
+    
+    mse_elastic = mean_squared_error(y_train, y_pred_elastic)
+    insample_elastic = mean_squared_error(y_true_train, y_pred_elastic)
+    error_diff_elastic = insample_elastic - mse_elastic + sigma**2
+    df_elastic = (n_train / (2 * sigma**2)) * error_diff_elastic
+    
     result.update({
-        'insample_elastic': mean_squared_error(y_true_train, y_pred_elastic),
-        'mse_elastic': mean_squared_error(y_train, y_pred_elastic),
+        'insample_elastic': insample_elastic,
+        'mse_elastic': mse_elastic,
+        'df_elastic': df_elastic,
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0)),
         'outsample_mse_elastic': mean_squared_error(y_test, y_test_elastic)
     })
 
-    ## Create penalized scorer factory with true sigma^2
+    # Create penalized scorer factory with true sigma^2
     make_k_scorer = create_aic_scorer(
         sigma=sigma,
         n=params['data']['n_train'],
@@ -199,28 +287,37 @@ def run_one_dgp_iter(
     )
 
     # Fit and evaluate BaggedGS
+    start_time = time.time()
     bagged_gs = BaggedGS(
         k_max=params['model']['k_max'],
         n_estimators=params['model']['bagged_gs']['n_estimators'],
         random_state=seed+sim_num,
         cv=params['model']['bagged_gs']['cv'],
-        scoring=make_k_scorer
+        scoring=make_k_scorer  # Use AIC scorer
     )
     bagged_gs.fit(X_train, y_train)
+    bagged_gs_time = time.time() - start_time
+    timing_results['time_bagged_gs'] = bagged_gs_time
     
     y_pred_bagged_gs = bagged_gs.predict(X_train)
     y_test_bagged_gs = bagged_gs.predict(X_test)
     
-    # Get average coefficients - now correctly uses updated structure
+    # Get average coefficients
     avg_coef_bagged_gs = np.zeros(X.shape[1])
     for coefs, _, _ in bagged_gs.estimators_:
         avg_coef_bagged_gs += coefs[bagged_gs.k_]
     avg_coef_bagged_gs /= len(bagged_gs.estimators_)
     
+    mse_bagged_gs = mean_squared_error(y_train, y_pred_bagged_gs)
+    insample_bagged_gs = mean_squared_error(y_true_train, y_pred_bagged_gs)
+    error_diff_bagged_gs = insample_bagged_gs - mse_bagged_gs + sigma**2
+    df_bagged_gs = (n_train / (2 * sigma**2)) * error_diff_bagged_gs
+    
     result.update({
         'best_k_bagged_gs': bagged_gs.k_,
-        'insample_bagged_gs': mean_squared_error(y_true_train, y_pred_bagged_gs),
-        'mse_bagged_gs': mean_squared_error(y_train, y_pred_bagged_gs),
+        'insample_bagged_gs': insample_bagged_gs,
+        'mse_bagged_gs': mse_bagged_gs,
+        'df_bagged_gs': df_bagged_gs,
         'coef_recovery_bagged_gs': np.mean((avg_coef_bagged_gs - beta_true)**2),
         'support_recovery_bagged_gs': np.mean(
             (np.abs(avg_coef_bagged_gs) > 1e-10) == (beta_true != 0)
@@ -229,30 +326,39 @@ def run_one_dgp_iter(
     })
     
     # Fit and evaluate SmearedGS
+    start_time = time.time()
     smeared_gs = SmearedGS(
         k_max=params['model']['k_max'],
         n_estimators=params['model']['smeared_gs']['n_estimators'],
         noise_scale=params['model']['smeared_gs']['param_grid']['noise_scale'],
         random_state=seed+sim_num,
         cv=params['model']['smeared_gs']['cv'],
-        scoring=make_k_scorer
+        scoring=make_k_scorer  # Use AIC scorer
     )
     smeared_gs.fit(X_train, y_train)
+    smeared_gs_time = time.time() - start_time
+    timing_results['time_smeared_gs'] = smeared_gs_time
     
     y_pred_smeared_gs = smeared_gs.predict(X_train)
     y_test_smeared_gs = smeared_gs.predict(X_test)
     
-    # Get average coefficients - now correctly uses updated structure
+    # Get average coefficients
     avg_coef_smeared_gs = np.zeros(X.shape[1])
     for coefs, _, _ in smeared_gs.estimators_:
         avg_coef_smeared_gs += coefs[smeared_gs.k_]
     avg_coef_smeared_gs /= len(smeared_gs.estimators_)
     
+    mse_smeared_gs = mean_squared_error(y_train, y_pred_smeared_gs)
+    insample_smeared_gs = mean_squared_error(y_true_train, y_pred_smeared_gs)
+    error_diff_smeared_gs = insample_smeared_gs - mse_smeared_gs + sigma**2
+    df_smeared_gs = (n_train / (2 * sigma**2)) * error_diff_smeared_gs
+    
     result.update({
         'best_k_smeared_gs': smeared_gs.k_,
         'best_noise_scale': smeared_gs.noise_scale_,
-        'insample_smeared_gs': mean_squared_error(y_true_train, y_pred_smeared_gs),
-        'mse_smeared_gs': mean_squared_error(y_train, y_pred_smeared_gs),
+        'insample_smeared_gs': insample_smeared_gs,
+        'mse_smeared_gs': mse_smeared_gs,
+        'df_smeared_gs': df_smeared_gs,
         'coef_recovery_smeared_gs': np.mean((avg_coef_smeared_gs - beta_true)**2),
         'support_recovery_smeared_gs': np.mean(
             (np.abs(avg_coef_smeared_gs) > 1e-10) == (beta_true != 0)
@@ -266,7 +372,8 @@ def run_one_dgp_iter(
         params['data']['n_predictors']
     )
 
-    # Fit RGSCV with scorer factory
+    # Fit RGSCV
+    start_time = time.time()
     rgscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=m_grid,
@@ -274,18 +381,27 @@ def run_one_dgp_iter(
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
         random_state=seed+sim_num,
         cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer
+        scoring=make_k_scorer  # Use AIC scorer
     )
     rgscv.fit(X_train, y_train)
+    rgscv_time = time.time() - start_time
+    timing_results['time_rgscv'] = rgscv_time
     
     # Get predictions using best parameters
     y_pred_rgs = rgscv.predict(X_train)
     y_test_rgs = rgscv.predict(X_test)
+    
+    mse_rgs = mean_squared_error(y_train, y_pred_rgs)
+    insample_rgs = mean_squared_error(y_true_train, y_pred_rgs)
+    error_diff_rgs = insample_rgs - mse_rgs + sigma**2
+    df_rgs = (n_train / (2 * sigma**2)) * error_diff_rgs
+    
     result.update({
         'best_m': rgscv.m_,
         'best_k': rgscv.k_,
-        'insample_rgs': mean_squared_error(y_true_train, y_pred_rgs),
-        'mse_rgs': mean_squared_error(y_train, y_pred_rgs),
+        'insample_rgs': insample_rgs,
+        'mse_rgs': mse_rgs,
+        'df_rgs': df_rgs,
         'coef_recovery_rgs': np.mean((rgscv.model_.coef_[rgscv.k_] - beta_true)**2),
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
@@ -294,6 +410,7 @@ def run_one_dgp_iter(
     })
 
     # Fit Greedy Selection
+    start_time = time.time()
     gscv = RGSCV(
         k_max=params['model']['k_max'],
         m_grid=list([params['data']['n_predictors']]),
@@ -301,17 +418,26 @@ def run_one_dgp_iter(
         n_resample_iter=0,
         random_state=seed+sim_num,
         cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer
+        scoring=make_k_scorer  # Use AIC scorer
     )
     gscv.fit(X_train, y_train)
+    original_gs_time = time.time() - start_time
+    timing_results['time_original_gs'] = original_gs_time
     
     # Get predictions using best parameters
     y_pred_gs = gscv.predict(X_train)
     y_test_gs = gscv.predict(X_test)
+    
+    mse_original_gs = mean_squared_error(y_train, y_pred_gs)
+    insample_original_gs = mean_squared_error(y_true_train, y_pred_gs)
+    error_diff_original_gs = insample_original_gs - mse_original_gs + sigma**2
+    df_original_gs = (n_train / (2 * sigma**2)) * error_diff_original_gs
+    
     result.update({
-        'best_k_original_gs': gscv.k_,  # Distinguish from RGS k
-        'insample_original_gs': mean_squared_error(y_true_train, y_pred_gs),
-        'mse_original_gs': mean_squared_error(y_train, y_pred_gs),
+        'best_k_original_gs': gscv.k_,
+        'insample_original_gs': insample_original_gs,
+        'mse_original_gs': mse_original_gs,
+        'df_original_gs': df_original_gs,
         'coef_recovery_original_gs': np.mean((gscv.model_.coef_[gscv.k_] - beta_true)**2),
         'support_recovery_original_gs': np.mean(
             (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
@@ -321,6 +447,7 @@ def run_one_dgp_iter(
 
     # Baseline RGS and GS methods
     true_k = int(params['data']['signal_proportion']*params['data']['n_predictors'])
+    start_time = time.time()
     base_rgscv = RGSCV(
         k_max=true_k,
         m_grid=m_grid,
@@ -329,17 +456,26 @@ def run_one_dgp_iter(
         k_grid=[true_k],
         random_state=seed+sim_num,
         cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer
+        scoring=make_k_scorer  # Use AIC scorer
     )
     base_rgscv.fit(X_train, y_train)
+    base_rgs_time = time.time() - start_time
+    timing_results['time_base_rgs'] = base_rgs_time
     
     # Get predictions using best parameters
     y_pred_base_rgs = base_rgscv.predict(X_train)
     y_test_base_rgs = base_rgscv.predict(X_test)
+    
+    mse_base_rgs = mean_squared_error(y_train, y_pred_base_rgs)
+    insample_base_rgs = mean_squared_error(y_true_train, y_pred_base_rgs)
+    error_diff_base_rgs = insample_base_rgs - mse_base_rgs + sigma**2
+    df_base_rgs = (n_train / (2 * sigma**2)) * error_diff_base_rgs
+    
     result.update({
         'best_m_base': base_rgscv.m_,
-        'insample_base_rgs': mean_squared_error(y_true_train, y_pred_base_rgs),
-        'mse_base_rgs': mean_squared_error(y_train, y_pred_base_rgs),
+        'insample_base_rgs': insample_base_rgs,
+        'mse_base_rgs': mse_base_rgs,
+        'df_base_rgs': df_base_rgs,
         'coef_recovery_base_rgs': np.mean((base_rgscv.model_.coef_[base_rgscv.k_] - beta_true)**2),
         'support_recovery_base_rgs': np.mean(
             (np.abs(base_rgscv.model_.coef_[base_rgscv.k_]) > 1e-10) == (beta_true != 0)
@@ -348,6 +484,7 @@ def run_one_dgp_iter(
     })
 
     # Fit Greedy Selection
+    start_time = time.time()
     base_gscv = RGS(
         k_max=true_k,
         m=params['data']['n_predictors'],
@@ -356,13 +493,22 @@ def run_one_dgp_iter(
         random_state=seed+sim_num
     )
     base_gscv.fit(X_train, y_train)
+    base_gs_time = time.time() - start_time
+    timing_results['time_base_gs'] = base_gs_time
     
     # Get predictions using best parameters
     y_pred_base_gs = base_gscv.predict(X_train)
     y_test_base_gs = base_gscv.predict(X_test)
+    
+    mse_base_gs = mean_squared_error(y_train, y_pred_base_gs)
+    insample_base_gs = mean_squared_error(y_true_train, y_pred_base_gs)
+    error_diff_base_gs = insample_base_gs - mse_base_gs + sigma**2
+    df_base_gs = (n_train / (2 * sigma**2)) * error_diff_base_gs
+    
     result.update({
-        'insample_base_gs': mean_squared_error(y_true_train, y_pred_base_gs),
-        'mse_base_gs': mean_squared_error(y_train, y_pred_base_gs),
+        'insample_base_gs': insample_base_gs,
+        'mse_base_gs': mse_base_gs,
+        'df_base_gs': df_base_gs,
         'coef_recovery_base_gs': np.mean((base_gscv.coef_ - beta_true)**2),
         'support_recovery_base_gs': np.mean(
             (np.abs(base_gscv.coef_) > 1e-10) == (beta_true != 0)
@@ -370,7 +516,8 @@ def run_one_dgp_iter(
         'outsample_mse_base_gs': mean_squared_error(y_test, y_test_base_gs)
     })
     
-    return result
+    return result, timing_results
+    
 
 def main(param_path):
     """Main simulation loop."""
@@ -402,6 +549,26 @@ def main(param_path):
         params['simulation']['base_seed']
     )
     
+    # Check if X is full rank and save the information
+    rank_info = check_matrix_rank(X)
+    
+    # Log the rank information
+    print(f"Rank check for design matrix X:")
+    print(f"  - Dimensions: {X.shape}")
+    print(f"  - Full rank: {rank_info['is_full_rank']}")
+    print(f"  - Rank: {rank_info['rank']} / {rank_info['min_dimension']}")
+    print(f"  - Condition number: {rank_info['condition_number']:.4e}")
+    
+    # If not full rank, provide more detailed information
+    if not rank_info['is_full_rank']:
+        print("WARNING: X is not full rank!")
+        print(f"  - Smallest singular value: {rank_info['smallest_singular_value']:.4e}")
+        print(f"  - X'X is positive definite: {rank_info['XTX_is_positive_definite']}")
+        print("  - This may lead to unstable or non-unique solutions.")
+    
+    # Add rank information to parameters to save with results
+    params['rank_check'] = rank_info
+    
     # Set up generator mapping
     generators = {
         'exact': generate_exact_sparsity_example,
@@ -425,6 +592,7 @@ def main(param_path):
     
     # Initialize results storage
     all_results = []
+    all_timing_results = []
     
     # Main simulation loop with progress bar
     total_sims = params['simulation']['n_sim'] * len(sigmas)
@@ -439,7 +607,7 @@ def main(param_path):
                     f"{params['data']['covariance_type']}"
                 )
                 
-                result = run_one_dgp_iter(
+                result, timing_result = run_one_dgp_iter(
                     X=X,
                     generator=generator,
                     sigma=sigma,
@@ -448,12 +616,29 @@ def main(param_path):
                     sim_num=sim
                 )
                 all_results.append(result)
+                all_timing_results.append(timing_result)
                 pbar.update(1)
     
-    # Convert results to DataFrame
+    # Convert results to DataFrames
     results_df = pd.DataFrame(all_results)
+    timing_df = pd.DataFrame(all_timing_results)
     
-    # Calculate summary statistics
+    # Calculate summary statistics for timing
+    timing_summary_metrics = {
+        'time_lasso': ['mean', 'std', 'min', 'max'],
+        'time_ridge': ['mean', 'std', 'min', 'max'],
+        'time_elastic': ['mean', 'std', 'min', 'max'],
+        'time_bagged_gs': ['mean', 'std', 'min', 'max'],
+        'time_smeared_gs': ['mean', 'std', 'min', 'max'],
+        'time_rgscv': ['mean', 'std', 'min', 'max'],
+        'time_original_gs': ['mean', 'std', 'min', 'max'],
+        'time_base_rgs': ['mean', 'std', 'min', 'max'],
+        'time_base_gs': ['mean', 'std', 'min', 'max']
+    }
+    
+    timing_summary = timing_df.groupby('sigma').agg(timing_summary_metrics).round(4)
+    
+    # Calculate performance summary statistics
     summary_metrics = {
         'best_m': ['mean', 'std'],
         'best_k': ['mean', 'std'],
@@ -461,51 +646,60 @@ def main(param_path):
         'best_m_base': ['mean', 'std'],
         'insample_lasso': ['mean', 'std'],
         'mse_lasso': ['mean', 'std'],
+        'df_lasso': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_lasso': ['mean', 'std'],
         'support_recovery_lasso': ['mean', 'std'],
-        'outsample_mse_lasso': ['mean', 'std'],  # Added
+        'outsample_mse_lasso': ['mean', 'std'],
         'insample_ridge': ['mean', 'std'],
         'mse_ridge': ['mean', 'std'],
+        'df_ridge': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_ridge': ['mean', 'std'],
-        'outsample_mse_ridge': ['mean', 'std'],  # Added
+        'outsample_mse_ridge': ['mean', 'std'],
         'insample_elastic': ['mean', 'std'],
         'mse_elastic': ['mean', 'std'],
+        'df_elastic': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
-        'outsample_mse_elastic': ['mean', 'std'],  # Added
+        'outsample_mse_elastic': ['mean', 'std'],
         'best_k_bagged_gs': ['mean', 'std'],
         'insample_bagged_gs': ['mean', 'std'],
         'mse_bagged_gs': ['mean', 'std'],
+        'df_bagged_gs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_bagged_gs': ['mean', 'std'],
         'support_recovery_bagged_gs': ['mean', 'std'],
-        'outsample_mse_bagged_gs': ['mean', 'std'],  # Added
+        'outsample_mse_bagged_gs': ['mean', 'std'],
         'best_k_smeared_gs': ['mean', 'std'],
         'best_noise_scale': ['mean', 'std'],
         'insample_smeared_gs': ['mean', 'std'],
         'mse_smeared_gs': ['mean', 'std'],
+        'df_smeared_gs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_smeared_gs': ['mean', 'std'],
         'support_recovery_smeared_gs': ['mean', 'std'],
-        'outsample_mse_smeared_gs': ['mean', 'std'],  # Added
+        'outsample_mse_smeared_gs': ['mean', 'std'],
         'insample_rgs': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
+        'df_rgs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
-        'outsample_mse_rgs': ['mean', 'std'],  # Added
+        'outsample_mse_rgs': ['mean', 'std'],
         'insample_original_gs': ['mean', 'std'],
         'mse_original_gs': ['mean', 'std'],
+        'df_original_gs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_original_gs': ['mean', 'std'],
         'support_recovery_original_gs': ['mean', 'std'],
-        'outsample_mse_original_gs': ['mean', 'std'],  # Added
+        'outsample_mse_original_gs': ['mean', 'std'],
         'insample_base_rgs': ['mean', 'std'],
         'mse_base_rgs': ['mean', 'std'],
+        'df_base_rgs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_base_rgs': ['mean', 'std'],
         'support_recovery_base_rgs': ['mean', 'std'],
-        'outsample_mse_base_rgs': ['mean', 'std'],  # Added
+        'outsample_mse_base_rgs': ['mean', 'std'],
         'insample_base_gs': ['mean', 'std'],
         'mse_base_gs': ['mean', 'std'],
+        'df_base_gs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_base_gs': ['mean', 'std'],
         'support_recovery_base_gs': ['mean', 'std'],
-        'outsample_mse_base_gs': ['mean', 'std']  # Added
+        'outsample_mse_base_gs': ['mean', 'std']
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)
@@ -521,9 +715,11 @@ def main(param_path):
     save_path = Path(params['output']['save_path'])
     save_path.mkdir(parents=True, exist_ok=True)
 
-    # Save results and summary
+    # Save results, timing, and summaries
     results_df.to_csv(save_path / f'simulation_results_{filename_base}.csv', index=False)
+    timing_df.to_csv(save_path / f'simulation_timing_{filename_base}.csv', index=False)
     summary.to_csv(save_path / f'simulation_summary_{filename_base}.csv')
+    timing_summary.to_csv(save_path / f'simulation_timing_summary_{filename_base}.csv')
 
     # Save parameters used
     with open(save_path / f'simulation_params_{filename_base}.json', 'w') as f:
@@ -532,11 +728,10 @@ def main(param_path):
     print(f"\nSimulation completed in {(time.time() - start_time)/60:.1f} minutes")
     print(f"Results saved with base filename: {filename_base}")
     
-    return results_df, summary
+    return results_df, summary, timing_df, timing_summary
 
 if __name__ == "__main__":
-
     # Get the project root directory
     root_dir = Path(__file__).parent.parent  # Go up one level from scripts folder
     param_path = root_dir / "params" / "sim_params.json"
-    results_df, summary = main(param_path)
+    results_df, summary, timing_df, timing_summary = main(param_path)

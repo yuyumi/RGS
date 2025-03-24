@@ -1,0 +1,64 @@
+{
+    "simulation": {
+        "n_sim": 10,
+        "base_seed": 42,
+        "sigma": {
+            "type": "pve",
+            "params": {
+                "num_points": 5,
+                "min_pve": 0.1,
+                "max_pve": 0.5
+            }
+        }
+    },
+    "data": {
+        "n_predictors": 100,
+        "n_train": 1100,
+        "signal_proportion": 0.1,
+        "test_size": 0.091,
+        "covariance_type": "banded", 
+        "generator_type": "exact",
+        "generator_params": {
+            "eta" : 0.5
+        },
+        "block_params": {
+            "block_size": 20,
+            "within_correlation": 0.25
+        },
+        "banded_params": {
+            "gamma": 0.5
+        }
+    },
+    "model": {
+        "k_max": 20,
+        "m_grid": {
+            "type": "geometric",
+            "params": {
+                "base": 1.5,
+                "num_points": 10
+            }
+        },
+        "rgscv": {
+            "n_estimators": 500,
+            "n_resample_iter": 7,
+            "cv": 5
+        },
+        "bagged_gs": {
+            "n_estimators": 500,
+            "cv": 5
+        },
+        "smeared_gs": {
+            "n_estimators": 500,
+            "cv": 5,
+            "param_grid": {
+                "noise_scale": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
+            }
+        },
+        "baseline": {
+            "cv": 5
+        }
+    },
+    "output": {
+        "save_path": "results/raw/"
+    }
+}

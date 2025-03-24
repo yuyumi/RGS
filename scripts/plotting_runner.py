@@ -9,10 +9,11 @@ def create_plots_for_result(
     results_path: Path,
     figures_dir: Path,
     params_path: Optional[Path] = None,
-    show_std: bool = False
+    show_std: bool = False,
+    plot_type: str = 'both'  # Parameter to choose between 'line', 'bar', or 'both'
 ) -> None:
     """Create all plots for a single simulation result file."""
-    print(f"\nProcessing: {results_path.name}")
+    print(f"\nProcessing: {results_path.name} with {plot_type} plots")
     
     # Base name for plot files
     base_name = results_path.stem.replace('simulation_results_', '')
@@ -32,47 +33,160 @@ def create_plots_for_result(
         df = pd.read_csv(results_path)
         sigma_values = sorted(df['sigma'].unique())
     
-    # Define plot configurations
-    plot_types = {
-        # 'mse_sigma': (plot_mse_by_sigma, {}),
-        # 'df_sigma': (plot_df_by_sigma, {}),
-        # 'insample_sigma': (plot_insample_by_sigma, {}),
-        # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
-        # 'mse_pve': (plot_mse_by_variance_explained, {}),
-        # 'df_pve': (plot_df_by_variance_explained, {}),
-        'insample_pve': (plot_insample_by_variance_explained, {}),
-        'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
-    }
-    
-    # Generate basic plots
-    for plot_name, (plot_func, plot_kwargs) in plot_types.items():
+    # Generate MSE vs DF plot (only for line plots)
+    if plot_type == 'line' or plot_type == 'both':
         try:
-            save_path = figures_dir / f"{plot_name}_{base_name}.png"
-            plot_func(str(results_path), save_path=save_path, show_std=show_std, **plot_kwargs)
+            print("Attempting to create MSE vs DF plot...")
+            save_path = figures_dir / f"mse_vs_df_{base_name}.png"
+            
+            # Call the function directly - it's already imported via * import
+            plot_mse_vs_df(
+                results_path=str(results_path), 
+                target_sigma=None, 
+                save_path=save_path, 
+                show_std=False, 
+                method_filter=lambda m: m != 'ridge'
+            )
             print(f"Created: {save_path.name}")
         except Exception as e:
-            print(f"Error creating {plot_name}: {str(e)}")
+            print(f"Error creating mse_vs_df plot: {str(e)}")
+            import traceback
+            traceback.print_exc()  # Print the full traceback for debugging
     
-    # Generate k-specific plots for select sigma values
-    # Choose a few representative sigma values (e.g., low, medium, high noise)
-    k_plot_sigmas = [sigma_values[0], sigma_values[len(sigma_values)//2], sigma_values[-1]]
-    
-    k_plot_types = {
-        # 'mse_vs_k': plot_mse_vs_k,
-        # 'df_vs_k': plot_df_vs_k,
-        # 'insample_vs_k': plot_insample_vs_k
-    }
-    
-    for sigma in k_plot_sigmas:
+    # Define plot configurations based on plot_type
+    if plot_type == 'line' or plot_type == 'both':
+        plot_types = {
+            # 'mse_sigma': (plot_mse_by_sigma, {}),
+            # 'df_sigma': (plot_df_by_sigma, {}),
+            # 'insample_sigma': (plot_insample_by_sigma, {}),
+            # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
+            # 'mse_pve': (plot_mse_by_variance_explained, {}),
+            'df_pve': (plot_df_by_variance_explained, {}),
+            'insample_pve': (plot_insample_by_variance_explained, {}),
+            'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
+        }
+        
+        k_plot_types = {
+            # 'mse_vs_k': plot_mse_vs_k,
+            # 'df_vs_k': plot_df_vs_k,
+            # 'insample_vs_k': plot_insample_vs_k,
+        }
+        
+        # Generate basic plots
+        for plot_name, (plot_func, plot_kwargs) in plot_types.items():
+            try:
+                # Special case for df plots - exclude Ridge
+                if 'df' in plot_name:
+                    # Create a filtering function
+                    def filtered_plot_func(*args, **kwargs):
+                        # Add method_filter to kwargs
+                        kwargs['method_filter'] = lambda m: m != 'ridge'
+                        return plot_func(*args, **kwargs)
+                    
+                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    filtered_plot_func(str(results_path), save_path=save_path, show_std=show_std, **plot_kwargs)
+                else:
+                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    plot_func(str(results_path), save_path=save_path, show_std=show_std, **plot_kwargs)
+                
+                print(f"Created: {save_path.name}")
+            except Exception as e:
+                print(f"Error creating {plot_name}: {str(e)}")
+        
+        # Generate k-specific plots for select sigma values
+        # Choose a few representative sigma values (e.g., low, medium, high noise)
+        k_plot_sigmas = [sigma_values[0], sigma_values[len(sigma_values)//2], sigma_values[-1]]
+        
         for plot_name, plot_func in k_plot_types.items():
             try:
-                save_path = figures_dir / f"{plot_name}_sigma_{sigma:.3f}_{base_name}.png"
-                plot_func(str(results_path), sigma, save_path=save_path)
+                # For other k-specific plots, use the target sigma approach
+                for sigma in k_plot_sigmas:
+                    save_path = figures_dir / f"{plot_name}_sigma_{sigma:.3f}_{base_name}.png"
+                    
+                    # Special case for df plots - exclude Ridge
+                    if 'df' in plot_name:
+                        # Create a filtering function
+                        def filtered_plot_func(*args, **kwargs):
+                            # Add method_filter to kwargs
+                            kwargs['method_filter'] = lambda m: m != 'ridge'
+                            return plot_func(*args, **kwargs)
+                        
+                        filtered_plot_func(str(results_path), sigma, save_path=save_path)
+                    else:
+                        plot_func(str(results_path), sigma, save_path=save_path)
+                    
+                    print(f"Created: {save_path.name}")
+            except Exception as e:
+                print(f"Error creating {plot_name} for sigma={sigma}: {str(e)}")
+    
+    if plot_type == 'bar' or plot_type == 'both':
+        plot_types = {
+            # 'mse_sigma': (barplot_mse_by_sigma, {'log_scale': True}),
+            # 'df_sigma': (barplot_df_by_sigma, {'log_scale': False}),
+            # 'insample_sigma': (barplot_insample_by_sigma, {'log_scale': True}),
+            # 'outsample_sigma': (barplot_outsample_mse_by_sigma, {'log_scale': True}),
+            # 'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
+            'df_pve': (barplot_df_by_variance_explained, {'log_scale': False}),
+            'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
+            'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True})
+        }
+        
+        k_plot_types = {
+            # 'mse_vs_k': barplot_mse_vs_k,
+            # 'df_vs_k': barplot_df_vs_k,
+            # 'insample_vs_k': barplot_insample_vs_k
+        }
+        
+        # Generate basic plots
+        for plot_name, (plot_func, plot_kwargs) in plot_types.items():
+            try:
+                # Special case for df plots - exclude Ridge
+                if 'df' in plot_name:
+                    # Create a filtering function
+                    def filtered_plot_func(*args, **kwargs):
+                        # Add method_filter to kwargs
+                        kwargs['method_filter'] = lambda m: m != 'ridge'
+                        return plot_func(*args, **kwargs)
+                    
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    filtered_plot_func(str(results_path), save_path=save_path, show_std=show_std, **plot_kwargs)
+                else:
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    plot_func(str(results_path), save_path=save_path, show_std=show_std, **plot_kwargs)
+                
                 print(f"Created: {save_path.name}")
+            except Exception as e:
+                print(f"Error creating {plot_name}: {str(e)}")
+        
+        # Generate k-specific plots for select sigma values
+        # Choose a few representative sigma values (e.g., low, medium, high noise)
+        k_plot_sigmas = [sigma_values[0], sigma_values[len(sigma_values)//2], sigma_values[-1]]
+        
+        for plot_name, plot_func in k_plot_types.items():
+            try:
+                # For other k-specific plots, use the target sigma approach
+                for sigma in k_plot_sigmas:
+                    save_path = figures_dir / f"{plot_name}_sigma_{sigma:.3f}_bar_{base_name}.png"
+                    
+                    # Special case for df plots - exclude Ridge
+                    if 'df' in plot_name:
+                        # Create a filtering function
+                        def filtered_plot_func(*args, **kwargs):
+                            # Add method_filter to kwargs
+                            kwargs['method_filter'] = lambda m: m != 'ridge'
+                            return plot_func(*args, **kwargs)
+                        
+                        log_scale = 'df' not in plot_name  # Use log scale except for degrees of freedom
+                        filtered_plot_func(str(results_path), sigma, save_path=save_path, show_std=show_std, log_scale=log_scale)
+                    else:
+                        log_scale = 'df' not in plot_name
+                        plot_func(str(results_path), sigma, save_path=save_path, show_std=show_std, log_scale=log_scale)
+                    
+                    print(f"Created: {save_path.name}")
             except Exception as e:
                 print(f"Error creating {plot_name} for sigma={sigma}: {str(e)}")
 
-def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None) -> None:
+def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, plot_type: str = 'both', show_std: bool = False) -> None:
     """Run plotting for all simulation results matching the pattern."""
     # Get project root directory (two levels up from this script)
     root_dir = Path(__file__).parent.parent
@@ -97,6 +211,7 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
     
     print(f"Searching in directory: {raw_results_path}")
     print(f"Using pattern: {pattern_str}")
+    print(f"Plot type: {plot_type}")
     print(f"Saving figures to: {figures_dir}")
     
     if not results_files:
@@ -117,7 +232,13 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
             params_name = result_file.name.replace('simulation_results_', 'simulation_params_')
             params_file = result_file.parent / params_name.replace('.csv', '.json')
             
-            create_plots_for_result(result_file, figures_dir, params_file)
+            create_plots_for_result(
+                result_file, 
+                figures_dir, 
+                params_file, 
+                show_std=show_std,
+                plot_type=plot_type
+            )
         except Exception as e:
             print(f"Error processing {result_file.name}:")
             print(f"Error message: {str(e)}")
@@ -129,9 +250,10 @@ if __name__ == "__main__":
     parser.add_argument('--results-dir', type=str, default=None,
                       help='Directory containing raw result files (default: PROJECT_ROOT/results/raw)')
     parser.add_argument('--show-std', action='store_true',
-                      help='Enable standard deviation bands in plots')
+                      help='Enable standard deviation bands/error bars in plots')
+    parser.add_argument('--plot-type', type=str, choices=['line', 'bar', 'both'], default='both',
+                      help='Type of plots to generate: line, bar, or both (default: both)')
     
     args = parser.parse_args()
     
-    show_std = args.show_std
-    run_plotting(args.results_dir, args.pattern)
+    run_plotting(args.results_dir, args.pattern, args.plot_type, args.show_std)
