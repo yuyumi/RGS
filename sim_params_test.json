@@ -1,6 +1,6 @@
 {
     "simulation": {
-        "n_sim": 10,
+        "n_sim": 1,
         "base_seed": 42,
         "sigma": {
             "type": "pve",

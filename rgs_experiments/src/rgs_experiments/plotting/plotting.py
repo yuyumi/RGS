@@ -35,7 +35,8 @@ __all__ = [
     'barplot_df_vs_k',
     'barplot_insample_vs_k',
     'barplot_outsample_mse_vs_k',
-    'plot_mse_vs_df'
+    'plot_mse_vs_df',
+    'plot_df_by_k'
 ]
 
 class PlottingConfig:
@@ -1031,6 +1032,116 @@ def barplot_metric_vs_k(
         
     except Exception as e:
         print(f"Error creating bar plot vs k: {str(e)}")
+        plt.close()
+        return None
+    
+def plot_df_by_k(
+    results_path: Path,
+    target_sigma: float,
+    save_path: Optional[Path] = None,
+    show_std: bool = True,
+    sigma_tolerance: float = 1e-6
+) -> Optional[plt.Figure]:
+    """Plot degrees of freedom vs k for different models at a specific sigma value."""
+    try:
+        df = pd.read_csv(results_path)
+        df_sigma = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
+        
+        if df_sigma.empty:
+            print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
+            return None
+            
+        # Check if there are any df_by_k columns
+        df_by_k_columns = [col for col in df_sigma.columns if col.startswith('df_by_k_')]
+        if not df_by_k_columns:
+            print(f"No df_by_k data found in {Path(results_path).name}")
+            return None
+        
+        fig, ax = create_figure()
+        setup_plot_style()
+        
+        # Get list of methods
+        methods = set()
+        for col in df_by_k_columns:
+            # Extract method from column name (format: df_by_k_method_k)
+            parts = col.split('_')
+            if len(parts) >= 4:
+                method = '_'.join(parts[2:-1])  # Handle methods with underscores
+                methods.add(method)
+        
+        # Filter to only use methods that are in PlottingConfig.METHODS
+        available_methods = [m for m in methods if m in PlottingConfig.METHODS]
+        
+        for method in available_methods:
+            # Get all columns for this method
+            method_columns = [col for col in df_by_k_columns if col.startswith(f'df_by_k_{method}_')]
+            
+            # Extract k values from column names
+            k_values = []
+            for col in method_columns:
+                try:
+                    k = int(col.split('_')[-1])
+                    k_values.append(k)
+                except ValueError:
+                    continue
+            
+            if not k_values:
+                continue
+                
+            # Sort k values
+            k_values = sorted(k_values)
+            
+            # Calculate mean and std of df for each k
+            means = []
+            stds = []
+            
+            for k in k_values:
+                col = f'df_by_k_{method}_{k}'
+                if col in df_sigma.columns:
+                    means.append(df_sigma[col].mean())
+                    stds.append(df_sigma[col].std())
+                else:
+                    means.append(np.nan)
+                    stds.append(np.nan)
+            
+            # Plot the curve
+            ax.plot(
+                k_values, 
+                means,
+                marker='o',
+                color=PlottingConfig.COLORS[method],
+                label=PlottingConfig.get_method_label(method)
+            )
+            
+            if show_std:
+                ax.fill_between(
+                    k_values,
+                    np.array(means) - np.array(stds),
+                    np.array(means) + np.array(stds),
+                    color=PlottingConfig.COLORS[method],
+                    alpha=0.2
+                )
+        
+        # Add diagonal line showing k = df (theoretical OLS line)
+        max_k = max(k_values) if k_values else 0
+        ax.plot([0, max_k], [0, max_k], 'k--', alpha=0.7, label='k (OLS)')
+        
+        ax.set_xlabel(f'k (Number of Features, σ = {target_sigma:.2f})')
+        ax.set_ylabel('Effective Degrees of Freedom')
+        ax.legend(loc='best')
+        ax.grid(True, alpha=0.3)
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            return None
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error plotting df by k: {str(e)}")
+        import traceback
+        traceback.print_exc()
         plt.close()
         return None
 

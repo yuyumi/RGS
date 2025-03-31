@@ -114,15 +114,13 @@ def check_matrix_rank(X):
     dict
         Dictionary containing rank information and diagnostics
     """
-    import numpy as np
-    from scipy import linalg
     
     n, p = X.shape
     min_dim = min(n, p)
     
     # Calculate rank using SVD
     # SVD is more numerically stable than np.linalg.matrix_rank
-    u, s, vh = linalg.svd(X, full_matrices=False)
+    u, s, vh = np.linalg.svd(X, full_matrices=False)
     
     # Get the rank (number of non-zero singular values, with tolerance)
     tol = s.max() * max(X.shape) * np.finfo(s.dtype).eps
@@ -135,22 +133,133 @@ def check_matrix_rank(X):
     is_pos_def = True
     try:
         # Try Cholesky decomposition - will fail if not positive definite
-        linalg.cholesky(X.T @ X)
-    except linalg.LinAlgError:
+        np.linalg.cholesky(X.T @ X)
+    except np.linalg.LinAlgError:
         is_pos_def = False
     
     # Prepare results
     results = {
-        'is_full_rank': rank == min_dim,
-        'rank': rank,
-        'min_dimension': min_dim,
-        'condition_number': condition_number,
-        'smallest_singular_value': s[-1],
-        'largest_singular_value': s[0],
-        'XTX_is_positive_definite': is_pos_def
+        'is_full_rank': bool(rank == min_dim),  # Convert from numpy.bool_ to Python bool
+        'rank': int(rank),  # Convert from numpy.int64 to Python int
+        'min_dimension': int(min_dim),
+        'condition_number': float(condition_number),
+        'smallest_singular_value': float(s[-1]),
+        'largest_singular_value': float(s[0]),
+        'XTX_is_positive_definite': bool(is_pos_def)
     }
-    
     return results
+
+def calculate_df_for_all_k(model, X_train, y_train, y_true_train, sigma, n_train):
+    """
+    Calculate degrees of freedom for each k value in a fitted RGS model.
+    
+    Parameters
+    ----------
+    model : RGS or RGSCV
+        The fitted model with coefficients for each k
+    X_train : ndarray
+        Training features
+    y_train : ndarray
+        Observed training targets
+    y_true_train : ndarray
+        True training targets (without noise)
+    sigma : float
+        Noise standard deviation
+    n_train : int
+        Number of training samples
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their degrees of freedom
+    """
+    # For RGSCV models, extract the underlying RGS model
+    if hasattr(model, 'model_'):
+        rgs_model = model.model_
+    else:
+        rgs_model = model
+    
+    # Calculate df for each k value
+    df_by_k = {}
+    
+    for k in range(len(rgs_model.coef_)):
+        # Get predictions for this k
+        y_pred_k = rgs_model.predict(X_train, k=k)
+        
+        # Calculate MSE (observed vs. predicted)
+        mse_k = np.mean((y_train - y_pred_k) ** 2)
+        
+        # Calculate in-sample error (true signal vs. predicted)
+        insample_k = np.mean((y_true_train - y_pred_k) ** 2)
+        
+        # Calculate degrees of freedom using the formula
+        error_diff_k = insample_k - mse_k + sigma**2
+        df_k = (n_train / (2 * sigma**2)) * error_diff_k
+        
+        # Store in dictionary
+        df_by_k[k] = df_k
+    
+    return df_by_k
+
+def calculate_df_for_all_k_ensemble(model, X_train, y_train, y_true_train, sigma, n_train):
+    """
+    Calculate degrees of freedom for each k value in a fitted ensemble model.
+    
+    Parameters
+    ----------
+    model : BaggedGS or SmearedGS
+        The fitted ensemble model
+    X_train : ndarray
+        Training features
+    y_train : ndarray
+        Observed training targets
+    y_true_train : ndarray
+        True training targets (without noise)
+    sigma : float
+        Noise standard deviation
+    n_train : int
+        Number of training samples
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their degrees of freedom
+    """
+    df_by_k = {}
+    
+    # Get maximum k value
+    k_max = model.k_max
+    
+    for k in range(k_max + 1):
+        # Get average coefficients for this k
+        avg_coef_k = np.zeros(X_train.shape[1])
+        count = 0
+        
+        for coefs, _, _ in model.estimators_:
+            if k < len(coefs):  # Ensure k is valid for this estimator
+                avg_coef_k += coefs[k]
+                count += 1
+        
+        if count > 0:  # Only proceed if we have valid estimators
+            avg_coef_k /= count
+            
+            # Calculate the average intercept
+            avg_intercept = np.mean(y_train) - X_train.mean(axis=0) @ avg_coef_k
+            
+            # Make predictions
+            y_pred_k = X_train @ avg_coef_k + avg_intercept
+            
+            # Calculate errors
+            mse_k = np.mean((y_train - y_pred_k) ** 2)
+            insample_k = np.mean((y_true_train - y_pred_k) ** 2)
+            
+            # Calculate df
+            error_diff_k = insample_k - mse_k + sigma**2
+            df_k = (n_train / (2 * sigma**2)) * error_diff_k
+            
+            df_by_k[k] = df_k
+    
+    return df_by_k
 
 def run_one_dgp_iter(
     X,
@@ -324,6 +433,18 @@ def run_one_dgp_iter(
         ),
         'outsample_mse_bagged_gs': mean_squared_error(y_test, y_test_bagged_gs)
     })
+
+    df_by_k_bagged_gs = calculate_df_for_all_k_ensemble(
+        model=bagged_gs,
+        X_train=X_train, 
+        y_train=y_train,
+        y_true_train=y_true_train,
+        sigma=sigma,
+        n_train=n_train
+    )
+
+    for k, df_value in df_by_k_bagged_gs.items():
+        result[f'df_by_k_bagged_gs_{k}'] = df_value
     
     # Fit and evaluate SmearedGS
     start_time = time.time()
@@ -365,6 +486,18 @@ def run_one_dgp_iter(
         ),
         'outsample_mse_smeared_gs': mean_squared_error(y_test, y_test_smeared_gs)
     })
+
+    df_by_k_smeared_gs = calculate_df_for_all_k_ensemble(
+        model=smeared_gs,
+        X_train=X_train, 
+        y_train=y_train,
+        y_true_train=y_true_train,
+        sigma=sigma,
+        n_train=n_train
+    )
+
+    for k, df_value in df_by_k_smeared_gs.items():
+        result[f'df_by_k_smeared_gs_{k}'] = df_value
     
     # Calculate m_grid
     m_grid = get_m_grid(
@@ -409,6 +542,19 @@ def run_one_dgp_iter(
         'outsample_mse_rgs': mean_squared_error(y_test, y_test_rgs)
     })
 
+    df_by_k_rgs = calculate_df_for_all_k(
+        model=rgscv,
+        X_train=X_train, 
+        y_train=y_train,
+        y_true_train=y_true_train,
+        sigma=sigma,
+        n_train=n_train
+    )
+
+    # Store in result dictionary with a consistent column naming pattern
+    for k, df_value in df_by_k_rgs.items():
+        result[f'df_by_k_rgs_{k}'] = df_value
+
     # Fit Greedy Selection
     start_time = time.time()
     gscv = RGSCV(
@@ -444,6 +590,18 @@ def run_one_dgp_iter(
         ),
         'outsample_mse_original_gs': mean_squared_error(y_test, y_test_gs)
     })
+
+    df_by_k_original_gs = calculate_df_for_all_k(
+        model=gscv,
+        X_train=X_train, 
+        y_train=y_train,
+        y_true_train=y_true_train,
+        sigma=sigma,
+        n_train=n_train
+    )
+
+    for k, df_value in df_by_k_original_gs.items():
+        result[f'df_by_k_original_gs_{k}'] = df_value
 
     # Baseline RGS and GS methods
     true_k = int(params['data']['signal_proportion']*params['data']['n_predictors'])

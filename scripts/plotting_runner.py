@@ -70,6 +70,7 @@ def create_plots_for_result(
             # 'mse_vs_k': plot_mse_vs_k,
             # 'df_vs_k': plot_df_vs_k,
             # 'insample_vs_k': plot_insample_vs_k,
+             'df_by_k': plot_df_by_k
         }
         
         # Generate basic plots
