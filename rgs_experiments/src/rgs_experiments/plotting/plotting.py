@@ -8,35 +8,21 @@ from pathlib import Path
 
 __all__ = [
     'plot_mse_by_sigma',
-    'plot_df_by_sigma',
     'plot_insample_by_sigma',
     'plot_outsample_mse_by_sigma',
     'plot_mse_by_variance_explained',
-    'plot_df_by_variance_explained',
     'plot_insample_by_variance_explained',
     'plot_outsample_mse_by_variance_explained',
-    'plot_mse_vs_k',
-    'plot_df_vs_k',
-    'plot_insample_vs_k',
-    'plot_outsample_mse_vs_k',
     # New bar plot functions
     'barplot_metric_by_sigma',
     'barplot_metric_by_variance_explained',
-    'barplot_metric_vs_k',
     'barplot_mse_by_sigma',
-    'barplot_df_by_sigma',
     'barplot_insample_by_sigma',
     'barplot_outsample_mse_by_sigma',
     'barplot_mse_by_variance_explained',
-    'barplot_df_by_variance_explained',
     'barplot_insample_by_variance_explained',
     'barplot_outsample_mse_by_variance_explained',
-    'barplot_mse_vs_k',
-    'barplot_df_vs_k',
-    'barplot_insample_vs_k',
-    'barplot_outsample_mse_vs_k',
-    'plot_mse_vs_df',
-    'plot_df_by_k'
+    'plot_mse_vs_df_by_k'
 ]
 
 class PlottingConfig:
@@ -66,7 +52,7 @@ class PlottingConfig:
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
     METHODS = ['lasso', 
-               'ridge',
+            #    'ridge',
                 'elastic', 
                 'bagged_gs', 'smeared_gs',
                 # 'base_rgs', 'base_gs',
@@ -93,6 +79,20 @@ class PlottingConfig:
     def get_method_label(cls, method: str) -> str:
         """Get formatted label for a method."""
         return cls.METHOD_LABELS.get(method, method.upper())
+    
+# Create a manual locator that uses our function to generate tick positions
+class ManualLogLocator(ticker.Locator):
+    def __init__(self, tick_function):
+        self.tick_function = tick_function
+        
+    def tick_values(self, vmin, vmax):
+        return self.tick_function(vmin, vmax)
+        
+    def __call__(self):
+        # Get the current axis limits
+        vmin, vmax = self.axis.get_view_interval()
+        return self.tick_values(vmin, vmax)
+
 
 def get_available_methods(df: pd.DataFrame, metric_prefix: str) -> List[str]:
     """Get list of available methods based on column prefixes."""
@@ -146,19 +146,6 @@ def enhance_log_axis(ax):
                         ticks.append(tick)
         
         return np.array(sorted(ticks))
-    
-    # Create a manual locator that uses our function to generate tick positions
-    class ManualLogLocator(ticker.Locator):
-        def __init__(self, tick_function):
-            self.tick_function = tick_function
-            
-        def tick_values(self, vmin, vmax):
-            return self.tick_function(vmin, vmax)
-            
-        def __call__(self):
-            # Get the current axis limits
-            vmin, vmax = self.axis.get_view_interval()
-            return self.tick_values(vmin, vmax)
     
     # Apply our custom locator
     ax.yaxis.set_major_locator(ManualLogLocator(specific_log_ticks))
@@ -244,6 +231,7 @@ def plot_metric_by_sigma(
         
         ax.set_yscale('log')
         enhance_log_axis(ax)
+        ax.set_ylim(bottom=0.0001)
         
         ax.set_xlabel('Sigma (Noise Level)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
@@ -254,6 +242,7 @@ def plot_metric_by_sigma(
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
+            return None
             
         return fig
         
@@ -301,6 +290,7 @@ def plot_metric_by_variance_explained(
         
         ax.set_yscale('log')
         enhance_log_axis(ax)
+        ax.set_ylim(bottom=0.0001)
         
         # Format x-axis with decimal intervals
         format_x_axis_decimal(ax)
@@ -321,140 +311,38 @@ def plot_metric_by_variance_explained(
         print(f"Error plotting metric by variance explained: {str(e)}")
         plt.close()
         return None
-
-def plot_metric_vs_k(
-    results_path: Path,
-    target_sigma: float,
-    metric: str = 'mse',
-    save_path: Optional[Path] = None,
-    sigma_tolerance: float = 1e-6
-) -> Optional[plt.Figure]:
-    """Plot metric vs k for a specific sigma value."""
-    try:
-        df = pd.read_csv(results_path)
-        df_sigma = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
-        
-        if df_sigma.empty:
-            print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
-            return None
-            
-        available_methods = get_available_methods(df_sigma, metric)
-        if not available_methods:
-            print(f"No data found for metric '{metric}' in {Path(results_path).name}")
-            return None
-            
-        # Check if there's any valid data for the available methods
-        valid_data = False
-        for method in available_methods:
-            metric_col = f'{metric}_{method}'
-            if not df_sigma[metric_col].isna().all():
-                valid_data = True
-                break
-                
-        if not valid_data:
-            print(f"All data for metric '{metric}' is NaN for σ = {target_sigma} in {Path(results_path).name}")
-            return None
-        
-        fig, ax = create_figure()
-        setup_plot_style()
-        
-        baseline_methods = [m for m in ['lasso', 'ridge', 'elastic'] if m in available_methods]
-        advanced_methods = [m for m in ['gs', 'rgs'] if m in available_methods]
-        
-        if not baseline_methods and not advanced_methods:
-            print(f"No valid methods found for σ = {target_sigma} in {Path(results_path).name}")
-            plt.close(fig)
-            return None
-        
-        # Plot baseline methods
-        for method in baseline_methods:
-            metric_col = f'{metric}_{method}'
-            metric_value = df_sigma[metric_col].mean()
-            ax.axhline(y=metric_value, 
-                color=PlottingConfig.COLORS[method],
-                linestyle='--',
-                label=PlottingConfig.get_method_label(method))
-        
-        # Plot k-dependent methods
-        if 'best_k' in df_sigma.columns:
-            k_values = sorted(df_sigma['best_k'].unique())
-            
-            for method in advanced_methods:
-                metric_col = f'{metric}_{method}'
-                k_metrics = []
-                k_stds = []
-                
-                for k in k_values:
-                    k_data = df_sigma[df_sigma['best_k'] == k][metric_col]
-                    k_metrics.append(k_data.mean())
-                    k_stds.append(k_data.std())
-                
-                ax.plot(k_values, k_metrics,
-                        marker='o',
-                        color=PlottingConfig.COLORS[method],
-                        label=PlottingConfig.get_method_label(method))
-                       
-                ax.fill_between(
-                    k_values,
-                    np.array(k_metrics) - np.array(k_stds),
-                    np.array(k_metrics) + np.array(k_stds),
-                    color=PlottingConfig.COLORS[method],
-                    alpha=0.2
-                )
-        
-        ax.set_yscale('log')
-        enhance_log_axis(ax)
-        
-        ax.set_xlabel('k')
-        ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        # Modified to include sigma in the axis label instead of title
-        ax.set_xlabel(f'k (σ = {target_sigma:.2f})')
-        ax.legend(loc='upper right')
-        ax.grid(True, alpha=0.3)
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-            
-        return fig
-        
-    except Exception as e:
-        print(f"Error plotting metric vs k: {str(e)}")
-        plt.close()
-        return None
     
-def plot_mse_vs_df(
+def plot_mse_vs_df_by_k(
     results_path: Path, 
-    target_sigma: Optional[float] = None,
+    target_sigma: float,
     save_path: Optional[Path] = None,
-    show_std: bool = True,
+    show_std: bool = False,
     log_scale_mse: bool = True,
     log_scale_df: bool = False,
     sigma_tolerance: float = 1e-6,
-    plot_all_sigmas: bool = True,  # New parameter to force plotting all sigmas on one plot
     method_filter: Optional[callable] = None  # Filter to exclude certain methods
 ) -> Optional[plt.Figure]:
     """
-    Plot MSE vs DF for each method, with all sigma values on the same plot.
+    Plot MSE vs DF for each method, showing different k values for a specific sigma value.
     
     Parameters:
     -----------
     results_path : Path
         Path to the CSV file containing simulation results
-    target_sigma : float, optional
-        If provided and plot_all_sigmas is False, plot only results for this specific sigma value
+    target_sigma : float
+        Plot only results for this specific sigma value
     save_path : Path, optional
         Path to save the figure
     show_std : bool
-        Whether to show standard deviation as error bars
+        Whether to show standard deviation as error bands (not used for k plots)
     log_scale_mse : bool
         Whether to use log scale for MSE axis
     log_scale_df : bool
         Whether to use log scale for DF axis
     sigma_tolerance : float
         Tolerance for identifying the target sigma in the data
-    plot_all_sigmas : bool
-        If True, plot all sigma values on the same plot (default behavior)
+    method_filter : callable, optional
+        Function to filter methods, should take a method name and return True/False
         
     Returns:
     --------
@@ -462,124 +350,125 @@ def plot_mse_vs_df(
         The generated figure or None if an error occurred
     """
     try:
-        from rgs_experiments.plotting.plotting import (
-            PlottingConfig, 
-            get_available_methods, 
-            setup_plot_style,
-            create_figure, 
-            enhance_log_axis
-        )
-        
         df = pd.read_csv(results_path)
         
-        # Filter by target sigma if provided and not plotting all sigmas
-        if target_sigma is not None and not plot_all_sigmas:
-            df = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
-            if df.empty:
-                print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
-                return None
-        
-        # Check for required columns
-        for metric in ['mse', 'df']:
-            available_methods = get_available_methods(df, metric)
-            if not available_methods:
-                print(f"No data found for metric '{metric}' in {Path(results_path).name}")
-                return None
-        
-        # Get methods that have both MSE and DF data
-        mse_methods = get_available_methods(df, 'mse')
-        df_methods = get_available_methods(df, 'df')
-        methods = [m for m in mse_methods if m in df_methods]
-        
-        # Apply method filter if provided
-        if method_filter:
-            methods = [m for m in methods if method_filter(m)]
-        
-        if not methods:
-            print(f"No methods with both MSE and DF data in {Path(results_path).name}")
+        # Filter by target sigma
+        df = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
+        if df.empty:
+            print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
             return None
+        
+        # Group data by simulation to average across simulations
+        group_cols = ['simulation', 'sigma']
+        df_avg = df.groupby('sigma').mean().reset_index()
         
         # Create figure
         fig, ax = create_figure()
         setup_plot_style()
         
-        # Get all sigma values
-        sigma_values = sorted(df['sigma'].unique())
+        # Identify methods that have k-specific data
+        available_methods = []
+        for method in PlottingConfig.METHODS:
+            # Check if method has k-specific columns
+            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
+            df_cols = [col for col in df_avg.columns if col.startswith(f'df_by_k_{method}_')]
+            
+            if mse_cols and df_cols:
+                available_methods.append(method)
         
-        # Create curves for each method connecting points across sigma values
-        for method in methods:
-            mse_col = f'mse_{method}'
-            df_col = f'df_{method}'
+        # Apply method filter if provided
+        if method_filter:
+            available_methods = [m for m in available_methods if method_filter(m)]
+        
+        if not available_methods:
+            print(f"No methods with both MSE and DF k-specific data in {Path(results_path).name}")
+            return None
+        
+        # Plot each method's k progression
+        for method in available_methods:
+            # Extract k-specific columns
+            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
+            df_cols = [col for col in df_avg.columns if col.startswith(f'df_by_k_{method}_')]
             
-            # Extract data points for this method (one per sigma)
-            points = []
-            for sigma in sigma_values:
-                sigma_data = df[df['sigma'] == sigma]
-                
-                # Always use MSE for training loss
-                error_mean = sigma_data[mse_col].mean()
-                error_std = sigma_data[mse_col].std() if show_std else 0
-                
-                df_mean = sigma_data[df_col].mean()
-                df_std = sigma_data[df_col].std() if show_std else 0
-                
-                points.append((sigma, error_mean, df_mean, error_std, df_std))
+            # Extract k numbers from column names
+            k_values = []
+            for col in mse_cols:
+                k = int(col.split('_')[-1])
+                k_values.append(k)
             
-            # Plot the curve connecting all sigma points for this method
-            sigmas, error_means, df_means, error_stds, df_stds = zip(*points)
+            # Sort by k values
+            k_values = sorted(k_values)
             
-            # Create a line connecting the points
-            ax.plot(
-                error_means, 
-                df_means,
-                '-',  # Just use a line
-                color=PlottingConfig.COLORS[method],
-                alpha=0.5,
-                linewidth=1.5,
-                label=PlottingConfig.get_method_label(method)
-            )
+            # Extract MSE and DF values for each k
+            mse_values = []
+            df_values = []
             
-            # Plot each point with a marker
-            for i, sigma in enumerate(sigmas):
-                # Use a different marker shape for each method
-                marker_style = 'o' if 'gs' in method.lower() or method == 'rgs' else 'X'
+            for k in k_values:
+                mse_col = f'mse_by_k_{method}_{k}'
+                df_col = f'df_by_k_{method}_{k}'
                 
-                # Plot point
-                ax.scatter(
-                    error_means[i], 
-                    df_means[i],
+                if mse_col in df_avg.columns and df_col in df_avg.columns:
+                    mse_value = df_avg[mse_col].values[0]  # Already averaged across simulations
+                    df_value = df_avg[df_col].values[0]
+                    
+                    # Only add if both values are valid
+                    if not np.isnan(mse_value) and not np.isnan(df_value):
+                        mse_values.append(mse_value)
+                        df_values.append(df_value)
+            
+            if mse_values and df_values:
+                # Create a line connecting the points
+                ax.plot(
+                    mse_values, 
+                    df_values,
+                    '-',  # Line style
                     color=PlottingConfig.COLORS[method],
-                    marker=marker_style,
-                    s=80,
+                    alpha=0.7,
+                    linewidth=1.5,
+                    label=PlottingConfig.get_method_label(method)
+                )
+                
+                # Plot each point with a marker
+                ax.scatter(
+                    mse_values, 
+                    df_values,
+                    color=PlottingConfig.COLORS[method],
+                    marker='o' if 'gs' in method.lower() or method == 'rgs' else 'X',
+                    s=60,
                     zorder=3,
                     edgecolors='black',
                     linewidths=0.5
                 )
+                
+                # Add k values as text labels
+                for i, k in enumerate(k_values[:len(mse_values)]):
+                    # Only label some k values to avoid clutter
+                    if k % 2 == 0 or k == k_values[-1]:  # Label even k values and the last k
+                        ax.annotate(
+                            f'{k}',
+                            (mse_values[i], df_values[i]),
+                            textcoords="offset points",
+                            xytext=(0, 5),
+                            ha='center',
+                            fontsize=8,
+                            color=PlottingConfig.COLORS[method]
+                        )
         
         # Set scales
         if log_scale_mse:
             ax.set_xscale('log')
-            # Apply custom formatting to x-axis
-            from matplotlib.ticker import ScalarFormatter
-            ax.xaxis.set_major_formatter(ScalarFormatter())
         
         if log_scale_df:
             ax.set_yscale('log')
-            # Apply custom formatting to y-axis
-            from matplotlib.ticker import ScalarFormatter
-            ax.yaxis.set_major_formatter(ScalarFormatter())
+
+        ax.set_ylim(bottom=0.0001)
         
         # Set labels
         ax.set_xlabel('Mean Square Error (MSE) - Training Loss')
         ax.set_ylabel('Degrees of Freedom (DF)')
         
         # Set title
-        ax.set_title('Model Complexity vs. Training Loss')
-        
-        # Create custom legend with method information
-        handles, labels = ax.get_legend_handles_labels()
-        gs_methods = [i for i, m in enumerate(methods) if 'gs' in m.lower() or m == 'rgs']
-        reg_methods = [i for i, m in enumerate(methods) if i not in gs_methods]
+        ax.set_title(f'Model Complexity vs. Training Loss (σ = {target_sigma:.2f})')
         
         # Add grid and legend
         ax.grid(True, alpha=0.3)
@@ -594,7 +483,7 @@ def plot_mse_vs_df(
         return fig
     
     except Exception as e:
-        print(f"Error plotting MSE vs DF: {str(e)}")
+        print(f"Error plotting MSE vs DF by k: {str(e)}")
         plt.close()
         return None
 
@@ -690,6 +579,7 @@ def barplot_metric_by_sigma(
         if log_scale:
             ax.set_yscale('log')
             enhance_log_axis(ax)
+            ax.set_ylim(bottom=0.0001)
         else:
             # For linear scale, ensure y-axis starts from 0
             ax.set_ylim(bottom=0)
@@ -844,313 +734,9 @@ def barplot_metric_by_variance_explained(
         plt.close()
         return None
 
-def barplot_metric_vs_k(
-    results_path: Path,
-    target_sigma: float,
-    metric: str = 'mse',
-    save_path: Optional[Path] = None,
-    show_std: bool = True,
-    log_scale: bool = True,
-    sigma_tolerance: float = 1e-6
-) -> Optional[plt.Figure]:
-    """Create bar plot of metric vs k for a specific sigma value."""
-    try:
-        df = pd.read_csv(results_path)
-        df_sigma = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
-        
-        if df_sigma.empty:
-            print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
-            return None
-            
-        available_methods = get_available_methods(df_sigma, metric)
-        if not available_methods:
-            print(f"No data found for metric '{metric}' in {Path(results_path).name}")
-            return None
-            
-        # Check if there's any valid data for the available methods
-        valid_data = False
-        for method in available_methods:
-            metric_col = f'{metric}_{method}'
-            if not df_sigma[metric_col].isna().all():
-                valid_data = True
-                break
-                
-        if not valid_data:
-            print(f"All data for metric '{metric}' is NaN for σ = {target_sigma} in {Path(results_path).name}")
-            return None
-        
-        fig, ax = create_figure()
-        setup_plot_style()
-        
-        # Separate baseline methods and k-dependent methods
-        baseline_methods = [m for m in ['lasso', 'ridge', 'elastic'] if m in available_methods]
-        advanced_methods = [m for m in available_methods if m not in baseline_methods]
-        
-        # Extract k values if they exist
-        if 'best_k' in df_sigma.columns:
-            k_values = sorted(df_sigma['best_k'].unique())
-            n_methods = len(available_methods)
-            
-            # Calculate positions for the bars
-            # First position: baseline methods
-            # Remaining positions: k-dependent methods by k
-            
-            # Calculate how many positions we'll need in total
-            # For baseline methods, we use one position per method
-            # For k-dependent methods, we use n_k positions for each method
-            total_baseline_pos = len(baseline_methods)
-            total_k_pos = len(k_values) * len(advanced_methods)
-            total_pos = total_baseline_pos + total_k_pos
-            
-            # Start with baseline methods
-            current_pos = 0
-            bar_width = 0.8
-            
-            # Plot baseline methods as single bars
-            for method in baseline_methods:
-                metric_col = f'{metric}_{method}'
-                method_data = df_sigma[metric_col]
-                
-                # Create a bar for this method
-                ax.bar(
-                    current_pos,
-                    method_data.mean(),
-                    width=bar_width,
-                    color=PlottingConfig.COLORS[method],
-                    label=PlottingConfig.get_method_label(method),
-                    edgecolor='black',
-                    linewidth=0.5
-                )
-                
-                # Add error bar
-                if show_std:
-                    ax.errorbar(
-                        current_pos,
-                        method_data.mean(),
-                        yerr=method_data.std(),
-                        fmt='none',
-                        color='black',
-                        capsize=3,
-                        linewidth=1,
-                        capthick=1
-                    )
-                    
-                current_pos += 1
-            
-            # Add a small gap between baseline methods and k-dependent methods
-            if baseline_methods and advanced_methods:
-                current_pos += 0.5
-            
-            # Now plot k-dependent methods, grouped by method
-            for method in advanced_methods:
-                metric_col = f'{metric}_{method}'
-                
-                for k in k_values:
-                    k_data = df_sigma[df_sigma['best_k'] == k][metric_col]
-                    
-                    # Create a bar for this method at this k
-                    ax.bar(
-                        current_pos,
-                        k_data.mean(),
-                        width=bar_width,
-                        color=PlottingConfig.COLORS[method],
-                        label=f"{PlottingConfig.get_method_label(method)} (k={k})" if k == k_values[0] else "",
-                        edgecolor='black',
-                        linewidth=0.5
-                    )
-                    
-                    # Add a text label for k
-                    ax.text(current_pos, 0, f"k={k}", ha='center', va='bottom', rotation=90)
-                    
-                    # Add error bar
-                    if show_std:
-                        ax.errorbar(
-                            current_pos,
-                            k_data.mean(),
-                            yerr=k_data.std(),
-                            fmt='none',
-                            color='black',
-                            capsize=3,
-                            linewidth=1,
-                            capthick=1
-                        )
-                    
-                    current_pos += 1
-                
-                # Add a small gap between different methods
-                if method != advanced_methods[-1]:
-                    current_pos += 0.5
-        else:
-            # If there are no k values, just plot all methods as regular bars
-            n_methods = len(available_methods)
-            bar_width = 0.8
-            
-            for i, method in enumerate(available_methods):
-                metric_col = f'{metric}_{method}'
-                method_data = df_sigma[metric_col]
-                
-                ax.bar(
-                    i,
-                    method_data.mean(),
-                    width=bar_width,
-                    color=PlottingConfig.COLORS[method],
-                    label=PlottingConfig.get_method_label(method),
-                    edgecolor='black',
-                    linewidth=0.5
-                )
-                
-                if show_std:
-                    ax.errorbar(
-                        i,
-                        method_data.mean(),
-                        yerr=method_data.std(),
-                        fmt='none',
-                        color='black',
-                        capsize=3,
-                        linewidth=1,
-                        capthick=1
-                    )
-        
-        # Set y-scale to log if requested
-        if log_scale:
-            ax.set_yscale('log')
-            enhance_log_axis(ax)
-        
-        # Remove x ticks
-        ax.set_xticks([])
-        
-        ax.set_xlabel(f'Method (σ = {target_sigma:.2f})')
-        ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right')
-        ax.grid(True, axis='y', alpha=0.3)
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-            
-        return fig
-        
-    except Exception as e:
-        print(f"Error creating bar plot vs k: {str(e)}")
-        plt.close()
-        return None
-    
-def plot_df_by_k(
-    results_path: Path,
-    target_sigma: float,
-    save_path: Optional[Path] = None,
-    show_std: bool = True,
-    sigma_tolerance: float = 1e-6
-) -> Optional[plt.Figure]:
-    """Plot degrees of freedom vs k for different models at a specific sigma value."""
-    try:
-        df = pd.read_csv(results_path)
-        df_sigma = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
-        
-        if df_sigma.empty:
-            print(f"No data found for σ = {target_sigma} in {Path(results_path).name}")
-            return None
-            
-        # Check if there are any df_by_k columns
-        df_by_k_columns = [col for col in df_sigma.columns if col.startswith('df_by_k_')]
-        if not df_by_k_columns:
-            print(f"No df_by_k data found in {Path(results_path).name}")
-            return None
-        
-        fig, ax = create_figure()
-        setup_plot_style()
-        
-        # Get list of methods
-        methods = set()
-        for col in df_by_k_columns:
-            # Extract method from column name (format: df_by_k_method_k)
-            parts = col.split('_')
-            if len(parts) >= 4:
-                method = '_'.join(parts[2:-1])  # Handle methods with underscores
-                methods.add(method)
-        
-        # Filter to only use methods that are in PlottingConfig.METHODS
-        available_methods = [m for m in methods if m in PlottingConfig.METHODS]
-        
-        for method in available_methods:
-            # Get all columns for this method
-            method_columns = [col for col in df_by_k_columns if col.startswith(f'df_by_k_{method}_')]
-            
-            # Extract k values from column names
-            k_values = []
-            for col in method_columns:
-                try:
-                    k = int(col.split('_')[-1])
-                    k_values.append(k)
-                except ValueError:
-                    continue
-            
-            if not k_values:
-                continue
-                
-            # Sort k values
-            k_values = sorted(k_values)
-            
-            # Calculate mean and std of df for each k
-            means = []
-            stds = []
-            
-            for k in k_values:
-                col = f'df_by_k_{method}_{k}'
-                if col in df_sigma.columns:
-                    means.append(df_sigma[col].mean())
-                    stds.append(df_sigma[col].std())
-                else:
-                    means.append(np.nan)
-                    stds.append(np.nan)
-            
-            # Plot the curve
-            ax.plot(
-                k_values, 
-                means,
-                marker='o',
-                color=PlottingConfig.COLORS[method],
-                label=PlottingConfig.get_method_label(method)
-            )
-            
-            if show_std:
-                ax.fill_between(
-                    k_values,
-                    np.array(means) - np.array(stds),
-                    np.array(means) + np.array(stds),
-                    color=PlottingConfig.COLORS[method],
-                    alpha=0.2
-                )
-        
-        # Add diagonal line showing k = df (theoretical OLS line)
-        max_k = max(k_values) if k_values else 0
-        ax.plot([0, max_k], [0, max_k], 'k--', alpha=0.7, label='k (OLS)')
-        
-        ax.set_xlabel(f'k (Number of Features, σ = {target_sigma:.2f})')
-        ax.set_ylabel('Effective Degrees of Freedom')
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-            return None
-        
-        return fig
-        
-    except Exception as e:
-        print(f"Error plotting df by k: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        plt.close()
-        return None
-
 # Convenience functions for original line plots
 def plot_mse_by_sigma(*args, **kwargs):
     return plot_metric_by_sigma(*args, metric='mse', **kwargs)
-
-def plot_df_by_sigma(*args, **kwargs):
-    return plot_metric_by_sigma(*args, metric='df', **kwargs)
 
 def plot_insample_by_sigma(*args, **kwargs):
     return plot_metric_by_sigma(*args, metric='insample', **kwargs)
@@ -1161,33 +747,15 @@ def plot_outsample_mse_by_sigma(*args, **kwargs):
 def plot_mse_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='mse', **kwargs)
 
-def plot_df_by_variance_explained(*args, **kwargs):
-    return plot_metric_by_variance_explained(*args, metric='df', **kwargs)
-
 def plot_insample_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='insample', **kwargs)
 
 def plot_outsample_mse_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
 
-def plot_mse_vs_k(*args, **kwargs):
-    return plot_metric_vs_k(*args, metric='mse', **kwargs)
-
-def plot_df_vs_k(*args, **kwargs):
-    return plot_metric_vs_k(*args, metric='df', **kwargs)
-
-def plot_insample_vs_k(*args, **kwargs):
-    return plot_metric_vs_k(*args, metric='insample', **kwargs)
-
-def plot_outsample_mse_vs_k(*args, **kwargs):
-    return plot_metric_vs_k(*args, metric='outsample_mse', **kwargs)
-
 # Convenience functions for bar plots
 def barplot_mse_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='mse', **kwargs)
-
-def barplot_df_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='df', **kwargs)
 
 def barplot_insample_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='insample', **kwargs)
@@ -1198,23 +766,8 @@ def barplot_outsample_mse_by_sigma(*args, **kwargs):
 def barplot_mse_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='mse', **kwargs)
 
-def barplot_df_by_variance_explained(*args, **kwargs):
-    return barplot_metric_by_variance_explained(*args, metric='df', **kwargs)
-
 def barplot_insample_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='insample', **kwargs)
 
 def barplot_outsample_mse_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
-
-def barplot_mse_vs_k(*args, **kwargs):
-    return barplot_metric_vs_k(*args, metric='mse', **kwargs)
-
-def barplot_df_vs_k(*args, **kwargs):
-    return barplot_metric_vs_k(*args, metric='df', **kwargs)
-
-def barplot_insample_vs_k(*args, **kwargs):
-    return barplot_metric_vs_k(*args, metric='insample', **kwargs)
-
-def barplot_outsample_mse_vs_k(*args, **kwargs):
-    return barplot_metric_vs_k(*args, metric='outsample_mse', **kwargs)

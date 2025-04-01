@@ -261,6 +261,182 @@ def calculate_df_for_all_k_ensemble(model, X_train, y_train, y_true_train, sigma
     
     return df_by_k
 
+def calculate_mse_for_all_k(model, X_train, y_train):
+    """
+    Calculate MSE for each k value in a fitted RGS model.
+    
+    Parameters
+    ----------
+    model : RGS or RGSCV
+        The fitted model with coefficients for each k
+    X_train : ndarray
+        Training features
+    y_train : ndarray
+        Observed training targets
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their MSE
+    """
+    # For RGSCV models, extract the underlying RGS model
+    if hasattr(model, 'model_'):
+        rgs_model = model.model_
+    else:
+        rgs_model = model
+    
+    # Calculate MSE for each k value
+    mse_by_k = {}
+    
+    for k in range(len(rgs_model.coef_)):
+        # Get predictions for this k
+        y_pred_k = rgs_model.predict(X_train, k=k)
+        
+        # Calculate MSE (observed vs. predicted)
+        mse_k = np.mean((y_train - y_pred_k) ** 2)
+        
+        # Store in dictionary
+        mse_by_k[k] = mse_k
+    
+    return mse_by_k
+
+def calculate_insample_for_all_k(model, X_train, y_true_train):
+    """
+    Calculate in-sample error for each k value in a fitted RGS model.
+    
+    Parameters
+    ----------
+    model : RGS or RGSCV
+        The fitted model with coefficients for each k
+    X_train : ndarray
+        Training features
+    y_true_train : ndarray
+        True training targets (without noise)
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their in-sample error
+    """
+    # For RGSCV models, extract the underlying RGS model
+    if hasattr(model, 'model_'):
+        rgs_model = model.model_
+    else:
+        rgs_model = model
+    
+    # Calculate in-sample error for each k value
+    insample_by_k = {}
+    
+    for k in range(len(rgs_model.coef_)):
+        # Get predictions for this k
+        y_pred_k = rgs_model.predict(X_train, k=k)
+        
+        # Calculate in-sample error (true signal vs. predicted)
+        insample_k = np.mean((y_true_train - y_pred_k) ** 2)
+        
+        # Store in dictionary
+        insample_by_k[k] = insample_k
+    
+    return insample_by_k
+
+def calculate_mse_for_all_k_ensemble(model, X_train, y_train):
+    """
+    Calculate MSE for each k value in a fitted ensemble model.
+    
+    Parameters
+    ----------
+    model : BaggedGS or SmearedGS
+        The fitted ensemble model
+    X_train : ndarray
+        Training features
+    y_train : ndarray
+        Observed training targets
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their MSE
+    """
+    mse_by_k = {}
+    
+    # Get maximum k value
+    k_max = model.k_max
+    
+    for k in range(k_max + 1):
+        # Get average coefficients for this k
+        avg_coef_k = np.zeros(X_train.shape[1])
+        count = 0
+        
+        for coefs, _, _ in model.estimators_:
+            if k < len(coefs):  # Ensure k is valid for this estimator
+                avg_coef_k += coefs[k]
+                count += 1
+        
+        if count > 0:  # Only proceed if we have valid estimators
+            avg_coef_k /= count
+            
+            # Calculate the average intercept
+            avg_intercept = np.mean(y_train) - X_train.mean(axis=0) @ avg_coef_k
+            
+            # Make predictions
+            y_pred_k = X_train @ avg_coef_k + avg_intercept
+            
+            # Calculate MSE
+            mse_k = np.mean((y_train - y_pred_k) ** 2)
+            
+            mse_by_k[k] = mse_k
+    
+    return mse_by_k
+
+def calculate_insample_for_all_k_ensemble(model, X_train, y_true_train):
+    """
+    Calculate in-sample error for each k value in a fitted ensemble model.
+    
+    Parameters
+    ----------
+    model : BaggedGS or SmearedGS
+        The fitted ensemble model
+    X_train : ndarray
+        Training features
+    y_true_train : ndarray
+        True training targets (without noise)
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping k values to their in-sample error
+    """
+    insample_by_k = {}
+    
+    # Get maximum k value
+    k_max = model.k_max
+    
+    for k in range(k_max + 1):
+        # Get average coefficients for this k
+        avg_coef_k = np.zeros(X_train.shape[1])
+        count = 0
+        
+        for coefs, _, _ in model.estimators_:
+            if k < len(coefs):  # Ensure k is valid for this estimator
+                avg_coef_k += coefs[k]
+                count += 1
+        
+        if count > 0:  # Only proceed if we have valid estimators
+            avg_coef_k /= count
+            
+            # Calculate the average intercept
+            avg_intercept = np.mean(y_true_train) - X_train.mean(axis=0) @ avg_coef_k
+            
+            # Make predictions
+            y_pred_k = X_train @ avg_coef_k + avg_intercept
+            
+            # Calculate in-sample error
+            insample_k = np.mean((y_true_train - y_pred_k) ** 2)
+            
+            insample_by_k[k] = insample_k
+    
+    return insample_by_k
+
 def run_one_dgp_iter(
     X,
     generator,
@@ -443,6 +619,24 @@ def run_one_dgp_iter(
         n_train=n_train
     )
 
+    mse_by_k_bagged_gs = calculate_mse_for_all_k_ensemble(
+        model=bagged_gs,
+        X_train=X_train, 
+        y_train=y_train
+    )
+
+    insample_by_k_bagged_gs = calculate_insample_for_all_k_ensemble(
+        model=bagged_gs,
+        X_train=X_train, 
+        y_true_train=y_true_train
+    )
+
+    for k, mse_value in mse_by_k_bagged_gs.items():
+        result[f'mse_by_k_bagged_gs_{k}'] = mse_value
+        
+    for k, insample_value in insample_by_k_bagged_gs.items():
+        result[f'insample_by_k_bagged_gs_{k}'] = insample_value
+
     for k, df_value in df_by_k_bagged_gs.items():
         result[f'df_by_k_bagged_gs_{k}'] = df_value
     
@@ -495,6 +689,24 @@ def run_one_dgp_iter(
         sigma=sigma,
         n_train=n_train
     )
+
+    mse_by_k_smeared_gs = calculate_mse_for_all_k_ensemble(
+        model=smeared_gs,
+        X_train=X_train, 
+        y_train=y_train
+    )
+
+    insample_by_k_smeared_gs = calculate_insample_for_all_k_ensemble(
+        model=smeared_gs,
+        X_train=X_train, 
+        y_true_train=y_true_train
+    )
+
+    for k, mse_value in mse_by_k_smeared_gs.items():
+        result[f'mse_by_k_smeared_gs_{k}'] = mse_value
+        
+    for k, insample_value in insample_by_k_smeared_gs.items():
+        result[f'insample_by_k_smeared_gs_{k}'] = insample_value
 
     for k, df_value in df_by_k_smeared_gs.items():
         result[f'df_by_k_smeared_gs_{k}'] = df_value
@@ -551,6 +763,24 @@ def run_one_dgp_iter(
         n_train=n_train
     )
 
+    mse_by_k_rgs = calculate_mse_for_all_k(
+        model=rgscv,
+        X_train=X_train, 
+        y_train=y_train
+    )
+
+    insample_by_k_rgs = calculate_insample_for_all_k(
+        model=rgscv,
+        X_train=X_train, 
+        y_true_train=y_true_train
+    )
+
+    for k, mse_value in mse_by_k_rgs.items():
+        result[f'mse_by_k_rgs_{k}'] = mse_value
+        
+    for k, insample_value in insample_by_k_rgs.items():
+        result[f'insample_by_k_rgs_{k}'] = insample_value
+
     # Store in result dictionary with a consistent column naming pattern
     for k, df_value in df_by_k_rgs.items():
         result[f'df_by_k_rgs_{k}'] = df_value
@@ -599,6 +829,24 @@ def run_one_dgp_iter(
         sigma=sigma,
         n_train=n_train
     )
+
+    mse_by_k_original_gs = calculate_mse_for_all_k(
+        model=gscv,
+        X_train=X_train, 
+        y_train=y_train
+    )
+
+    insample_by_k_original_gs = calculate_insample_for_all_k(
+        model=gscv,
+        X_train=X_train, 
+        y_true_train=y_true_train
+    )
+
+    for k, mse_value in mse_by_k_original_gs.items():
+        result[f'mse_by_k_original_gs_{k}'] = mse_value
+        
+    for k, insample_value in insample_by_k_original_gs.items():
+        result[f'insample_by_k_original_gs_{k}'] = insample_value
 
     for k, df_value in df_by_k_original_gs.items():
         result[f'df_by_k_original_gs_{k}'] = df_value
