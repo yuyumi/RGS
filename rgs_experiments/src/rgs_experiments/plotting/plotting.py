@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib.ticker as ticker
 from typing import Optional, List, Dict
 from pathlib import Path
+from matplotlib.ticker import FuncFormatter
 
 __all__ = [
     'plot_mse_by_sigma',
@@ -317,7 +318,7 @@ def plot_mse_vs_df_by_k(
     target_sigma: float,
     save_path: Optional[Path] = None,
     show_std: bool = False,
-    log_scale_mse: bool = True,
+    log_scale_mse: bool = False,
     log_scale_df: bool = False,
     sigma_tolerance: float = 1e-6,
     method_filter: Optional[callable] = None  # Filter to exclude certain methods
@@ -418,45 +419,66 @@ def plot_mse_vs_df_by_k(
             
             if mse_values and df_values:
                 # Create a line connecting the points
-                ax.plot(
-                    mse_values, 
-                    df_values,
-                    '-',  # Line style
-                    color=PlottingConfig.COLORS[method],
-                    alpha=0.7,
-                    linewidth=1.5,
-                    label=PlottingConfig.get_method_label(method)
-                )
+                # ax.plot(
+                #     mse_values, 
+                #     df_values,
+                #     '-',  # Line style
+                #     color=PlottingConfig.COLORS[method],
+                #     alpha=0.7,
+                #     linewidth=1.5,
+                #     label=PlottingConfig.get_method_label(method)
+                # )
+
+                # Define a dictionary of markers by method type
+                method_markers = {
+                    'lasso': 'o',
+                    'elastic': 's',  # square
+                    'bagged_gs': 'v',  # triangle down
+                    'smeared_gs': '^',  # triangle up 
+                    'original_gs': 'D',  # diamond
+                    'rgs': '*'  # star
+                }
+
+                # Use the dictionary to get the marker
+                marker = method_markers.get(method, 'o')
                 
                 # Plot each point with a marker
                 ax.scatter(
                     mse_values, 
                     df_values,
                     color=PlottingConfig.COLORS[method],
-                    marker='o' if 'gs' in method.lower() or method == 'rgs' else 'X',
+                    marker=marker,
                     s=60,
                     zorder=3,
                     edgecolors='black',
-                    linewidths=0.5
+                    linewidths=0.5,
+                    alpha=0.7,  # Add transparency to see overlapping points
+                    label=PlottingConfig.get_method_label(method)
                 )
                 
-                # Add k values as text labels
-                for i, k in enumerate(k_values[:len(mse_values)]):
-                    # Only label some k values to avoid clutter
-                    if k % 2 == 0 or k == k_values[-1]:  # Label even k values and the last k
-                        ax.annotate(
-                            f'{k}',
-                            (mse_values[i], df_values[i]),
-                            textcoords="offset points",
-                            xytext=(0, 5),
-                            ha='center',
-                            fontsize=8,
-                            color=PlottingConfig.COLORS[method]
-                        )
+                # # Add k values as text labels
+                # for i, k in enumerate(k_values[:len(mse_values)]):
+                #     # Only label some k values to avoid clutter
+                #     if k % 2 == 0 or k == k_values[-1]:  # Label even k values and the last k
+                #         ax.annotate(
+                #             f'{k}',
+                #             (mse_values[i], df_values[i]),
+                #             textcoords="offset points",
+                #             xytext=(0, 5),
+                #             ha='center',
+                #             fontsize=8,
+                #             color=PlottingConfig.COLORS[method]
+                #         )
         
         # Set scales
-        if log_scale_mse:
-            ax.set_xscale('log')
+        # if log_scale_mse:
+        #     print("here")
+        #     ax.set_xscale('log')
+            
+        def format_plain(x, pos):
+            return f"{x:.1f}"  # Show as plain decimal with 1 decimal place
+
+        ax.xaxis.set_major_formatter(FuncFormatter(format_plain))
         
         if log_scale_df:
             ax.set_yscale('log')
@@ -468,7 +490,7 @@ def plot_mse_vs_df_by_k(
         ax.set_ylabel('Degrees of Freedom (DF)')
         
         # Set title
-        ax.set_title(f'Model Complexity vs. Training Loss (σ = {target_sigma:.2f})')
+        # ax.set_title(f'Model Complexity vs. Training Loss (σ = {target_sigma:.2f})')
         
         # Add grid and legend
         ax.grid(True, alpha=0.3)

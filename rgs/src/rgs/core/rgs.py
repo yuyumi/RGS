@@ -276,9 +276,9 @@ class RGSCV(BaseEstimator, RegressorMixin):
         self.k_ = max(best_params.items(), key=lambda x: x[1]['score'])[0]
         self.m_ = best_params[self.k_]['m']
         
-        # Fit final model with best parameters
+        # Fit final model with full k_max
         self.model_ = RGS(
-            k_max=self.k_,
+            k_max=self.k_max,
             m=self.m_,
             n_estimators=self.n_estimators,
             n_resample_iter=self.n_resample_iter,
@@ -288,8 +288,10 @@ class RGSCV(BaseEstimator, RegressorMixin):
         
         return self
     
-    def predict(self, X):
+    def predict(self, X, k=None):
         """Make predictions using the fitted model with best parameters."""
         if isinstance(X, pd.DataFrame):
             X = X.values
-        return self.model_.predict(X, k=self.k_)
+        # Use best k if k is not specified, otherwise use specified k
+        k_to_use = self.k_ if k is None else k
+        return self.model_.predict(X, k=k_to_use)

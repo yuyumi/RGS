@@ -38,10 +38,7 @@ def create_plots_for_result(
         try:
             print("Attempting to create MSE vs DF by k plots...")
             
-            # Create plots for each sigma value
-            k_plot_sigmas = [sigma_values[0], sigma_values[len(sigma_values)//2], sigma_values[-1]]
-            
-            for sigma in k_plot_sigmas:
+            for sigma in sigma_values:
                 save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.png"
                 
                 # Call the function with the method filter
@@ -50,7 +47,7 @@ def create_plots_for_result(
                     target_sigma=sigma, 
                     save_path=save_path, 
                     show_std=show_std, 
-                    method_filter=lambda m: m != 'ridge'
+                    method_filter=lambda m: m in ['rgs', 'original_gs']
                 )
                 print(f"Created: {save_path.name}")
         except Exception as e:
@@ -65,7 +62,7 @@ def create_plots_for_result(
             # 'df_sigma': (plot_df_by_sigma, {}),
             # 'insample_sigma': (plot_insample_by_sigma, {}),
             # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
-            # 'mse_pve': (plot_mse_by_variance_explained, {}),
+            'mse_pve': (plot_mse_by_variance_explained, {}),
             'insample_pve': (plot_insample_by_variance_explained, {}),
             'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
         }
@@ -78,7 +75,7 @@ def create_plots_for_result(
                     # Create a filtering function
                     def filtered_plot_func(*args, **kwargs):
                         # Add method_filter to kwargs
-                        kwargs['method_filter'] = lambda m: m != 'ridge'
+                        kwargs['method_filter'] = lambda m: m in ['rgs', 'original_gs']
                         return plot_func(*args, **kwargs)
                     
                     save_path = figures_dir / f"{plot_name}_{base_name}.png"
@@ -97,7 +94,7 @@ def create_plots_for_result(
             # 'df_sigma': (barplot_df_by_sigma, {'log_scale': False}),
             # 'insample_sigma': (barplot_insample_by_sigma, {'log_scale': True}),
             # 'outsample_sigma': (barplot_outsample_mse_by_sigma, {'log_scale': True}),
-            # 'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
+            'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
             'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
             'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True})
         }
