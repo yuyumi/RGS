@@ -437,8 +437,82 @@ def calculate_insample_for_all_k_ensemble(model, X_train, y_true_train):
     
     return insample_by_k
 
+def calculate_relative_test_error(beta_hat, beta_true, X_test, sigma, cov_matrix=None):
+    """
+    Calculate the Relative Test Error (RTE).
+    
+    Parameters
+    ----------
+    beta_hat : ndarray
+        Estimated coefficients
+    beta_true : ndarray
+        True coefficients
+    X_test : ndarray
+        Test design matrix
+    sigma : float
+        Noise standard deviation
+    cov_matrix : ndarray, optional
+        The covariance matrix of X. If None, it will be estimated from X_test.
+        
+    Returns
+    -------
+    float
+        The relative test error (RTE)
+    """
+    # Calculate the covariance matrix if not provided
+    if cov_matrix is None:
+        cov_matrix = np.cov(X_test, rowvar=False)
+    
+    # Calculate the covariance-weighted squared difference between true and estimated betas
+    beta_diff = beta_hat - beta_true
+    weighted_beta_diff = beta_diff.T @ cov_matrix @ beta_diff
+    
+    # The RTE formula: (beta_hat - beta_true)^T Σ (beta_hat - beta_true) + sigma^2) / sigma^2
+    rte = (weighted_beta_diff + sigma**2) / (sigma**2)
+    
+    return rte
+
+def calculate_f_score(beta_hat, beta_true, threshold=1e-10):
+    """
+    Calculate F-score for support recovery.
+    
+    Parameters
+    ----------
+    beta_hat : ndarray
+        Estimated coefficients
+    beta_true : ndarray
+        True coefficients
+    threshold : float
+        Threshold for considering a coefficient non-zero
+        
+    Returns
+    -------
+    float
+        F-score value (harmonic mean of precision and recall)
+    """
+    # Identify non-zero coefficients (true support)
+    true_support = (np.abs(beta_true) > threshold)
+    
+    # Identify coefficients identified as non-zero by the model
+    predicted_support = (np.abs(beta_hat) > threshold)
+    
+    # Calculate true positives, false positives, false negatives
+    true_positives = np.sum(predicted_support & true_support)
+    false_positives = np.sum(predicted_support & ~true_support)
+    false_negatives = np.sum(~predicted_support & true_support)
+    
+    # Calculate precision and recall
+    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+    
+    # Calculate F-score
+    f_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    return f_score
+
 def run_one_dgp_iter(
     X,
+    cov_matrix,
     generator,
     sigma,
     params,
@@ -507,6 +581,19 @@ def run_one_dgp_iter(
     # Calculate degrees of freedom using the formula: df = (n/2*sigma^2) * (insample_error - mse + sigma^2)
     error_diff_lasso = insample_lasso - mse_lasso + sigma**2
     df_lasso = (n_train / (2 * sigma**2)) * error_diff_lasso
+
+    rte_lasso = calculate_relative_test_error(
+        beta_hat=lasso.coef_,
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_lasso = calculate_f_score(
+        beta_hat=lasso.coef_,
+        beta_true=beta_true
+    )
     
     result.update({
         'insample_lasso': insample_lasso,
@@ -514,7 +601,9 @@ def run_one_dgp_iter(
         'df_lasso': df_lasso,
         'coef_recovery_lasso': np.mean((lasso.coef_ - beta_true)**2),
         'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
-        'outsample_mse_lasso': mean_squared_error(y_test, y_test_lasso)
+        'outsample_mse_lasso': mean_squared_error(y_test, y_test_lasso),
+        'rte_lasso': rte_lasso,
+        'f_score_lasso': f_score_lasso
     })
     
     # Fit and evaluate Ridge
@@ -531,18 +620,34 @@ def run_one_dgp_iter(
     insample_ridge = mean_squared_error(y_true_train, y_pred_ridge)
     error_diff_ridge = insample_ridge - mse_ridge + sigma**2
     df_ridge = (n_train / (2 * sigma**2)) * error_diff_ridge
+
+    rte_ridge = calculate_relative_test_error(
+        beta_hat=ridge.coef_,
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_ridge = calculate_f_score(
+        beta_hat=ridge.coef_,
+        beta_true=beta_true
+    )
     
     result.update({
         'insample_ridge': insample_ridge,
         'mse_ridge': mse_ridge,
         'df_ridge': df_ridge,
         'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
-        'outsample_mse_ridge': mean_squared_error(y_test, y_test_ridge)
+        'outsample_mse_ridge': mean_squared_error(y_test, y_test_ridge),
+        'rte_ridge': rte_ridge,
+        'f_score_ridge': f_score_ridge
     })
     
     # Fit and evaluate Elastic Net
+    l1_ratios = [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]
     start_time = time.time()
-    elastic = ElasticNetCV(cv=cv, random_state=seed+sim_num)
+    elastic = ElasticNetCV(l1_ratio=l1_ratios, cv=cv, random_state=seed+sim_num)
     elastic.fit(X_train, y_train)
     elastic_time = time.time() - start_time
     timing_results['time_elastic'] = elastic_time
@@ -554,6 +659,19 @@ def run_one_dgp_iter(
     insample_elastic = mean_squared_error(y_true_train, y_pred_elastic)
     error_diff_elastic = insample_elastic - mse_elastic + sigma**2
     df_elastic = (n_train / (2 * sigma**2)) * error_diff_elastic
+
+    rte_elastic = calculate_relative_test_error(
+        beta_hat=elastic.coef_,
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_elastic = calculate_f_score(
+        beta_hat=elastic.coef_,
+        beta_true=beta_true
+    )
     
     result.update({
         'insample_elastic': insample_elastic,
@@ -561,7 +679,9 @@ def run_one_dgp_iter(
         'df_elastic': df_elastic,
         'coef_recovery_elastic': np.mean((elastic.coef_ - beta_true)**2),
         'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0)),
-        'outsample_mse_elastic': mean_squared_error(y_test, y_test_elastic)
+        'outsample_mse_elastic': mean_squared_error(y_test, y_test_elastic),
+        'rte_elastic': rte_elastic,
+        'f_score_elastic': f_score_elastic
     })
 
     # Create penalized scorer factory with true sigma^2
@@ -597,6 +717,19 @@ def run_one_dgp_iter(
     insample_bagged_gs = mean_squared_error(y_true_train, y_pred_bagged_gs)
     error_diff_bagged_gs = insample_bagged_gs - mse_bagged_gs + sigma**2
     df_bagged_gs = (n_train / (2 * sigma**2)) * error_diff_bagged_gs
+
+    rte_bagged_gs = calculate_relative_test_error(
+        beta_hat=avg_coef_bagged_gs,
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_bagged_gs = calculate_f_score(
+        beta_hat=avg_coef_bagged_gs,
+        beta_true=beta_true
+    )
     
     result.update({
         'best_k_bagged_gs': bagged_gs.k_,
@@ -607,7 +740,9 @@ def run_one_dgp_iter(
         'support_recovery_bagged_gs': np.mean(
             (np.abs(avg_coef_bagged_gs) > 1e-10) == (beta_true != 0)
         ),
-        'outsample_mse_bagged_gs': mean_squared_error(y_test, y_test_bagged_gs)
+        'outsample_mse_bagged_gs': mean_squared_error(y_test, y_test_bagged_gs),
+        'rte_bagged_gs': rte_bagged_gs,
+        'f_score_bagged_gs': f_score_bagged_gs
     })
 
     df_by_k_bagged_gs = calculate_df_for_all_k_ensemble(
@@ -667,6 +802,19 @@ def run_one_dgp_iter(
     insample_smeared_gs = mean_squared_error(y_true_train, y_pred_smeared_gs)
     error_diff_smeared_gs = insample_smeared_gs - mse_smeared_gs + sigma**2
     df_smeared_gs = (n_train / (2 * sigma**2)) * error_diff_smeared_gs
+
+    rte_smeared_gs = calculate_relative_test_error(
+        beta_hat=avg_coef_smeared_gs,
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_smeared_gs = calculate_f_score(
+        beta_hat=avg_coef_smeared_gs,
+        beta_true=beta_true
+    )
     
     result.update({
         'best_k_smeared_gs': smeared_gs.k_,
@@ -678,7 +826,9 @@ def run_one_dgp_iter(
         'support_recovery_smeared_gs': np.mean(
             (np.abs(avg_coef_smeared_gs) > 1e-10) == (beta_true != 0)
         ),
-        'outsample_mse_smeared_gs': mean_squared_error(y_test, y_test_smeared_gs)
+        'outsample_mse_smeared_gs': mean_squared_error(y_test, y_test_smeared_gs),
+        'rte_smeared_gs': rte_smeared_gs,
+        'f_score_smeared_gs': f_score_smeared_gs
     })
 
     df_by_k_smeared_gs = calculate_df_for_all_k_ensemble(
@@ -740,6 +890,19 @@ def run_one_dgp_iter(
     insample_rgs = mean_squared_error(y_true_train, y_pred_rgs)
     error_diff_rgs = insample_rgs - mse_rgs + sigma**2
     df_rgs = (n_train / (2 * sigma**2)) * error_diff_rgs
+
+    rte_rgs = calculate_relative_test_error(
+        beta_hat=rgscv.model_.coef_[rgscv.k_],
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_rgs = calculate_f_score(
+        beta_hat=rgscv.model_.coef_[rgscv.k_],
+        beta_true=beta_true
+    )
     
     result.update({
         'best_m': rgscv.m_,
@@ -751,7 +914,9 @@ def run_one_dgp_iter(
         'support_recovery_rgs': np.mean(
             (np.abs(rgscv.model_.coef_[rgscv.k_]) > 1e-10) == (beta_true != 0)
         ),
-        'outsample_mse_rgs': mean_squared_error(y_test, y_test_rgs)
+        'outsample_mse_rgs': mean_squared_error(y_test, y_test_rgs),
+        'rte_rgs': rte_rgs,
+        'f_score_rgs': f_score_rgs
     })
 
     df_by_k_rgs = calculate_df_for_all_k(
@@ -808,6 +973,19 @@ def run_one_dgp_iter(
     insample_original_gs = mean_squared_error(y_true_train, y_pred_gs)
     error_diff_original_gs = insample_original_gs - mse_original_gs + sigma**2
     df_original_gs = (n_train / (2 * sigma**2)) * error_diff_original_gs
+
+    rte_gs = calculate_relative_test_error(
+        beta_hat=gscv.model_.coef_[gscv.k_],
+        beta_true=beta_true,
+        X_test=X_test,
+        sigma=sigma,
+        cov_matrix=cov_matrix
+    )
+
+    f_score_gs = calculate_f_score(
+        beta_hat=gscv.model_.coef_[gscv.k_],
+        beta_true=beta_true
+    )
     
     result.update({
         'best_k_original_gs': gscv.k_,
@@ -818,7 +996,9 @@ def run_one_dgp_iter(
         'support_recovery_original_gs': np.mean(
             (np.abs(gscv.model_.coef_[gscv.k_]) > 1e-10) == (beta_true != 0)
         ),
-        'outsample_mse_original_gs': mean_squared_error(y_test, y_test_gs)
+        'outsample_mse_original_gs': mean_squared_error(y_test, y_test_gs),
+        'rte_original_gs': rte_gs,
+        'f_score_original_gs': f_score_gs
     })
 
     df_by_k_original_gs = calculate_df_for_all_k(
@@ -949,7 +1129,7 @@ def main(param_path):
         )
     }
     
-    X = X_generators[params['data']['covariance_type']](
+    X, cov_matrix = X_generators[params['data']['covariance_type']](
         params['data']['n_predictors'],
         params['data']['n_train'],
         params['simulation']['base_seed']
@@ -978,6 +1158,7 @@ def main(param_path):
     # Set up generator mapping
     generators = {
         'exact': generate_exact_sparsity_example,
+        'spaced': generate_spaced_sparsity_example,
         'inexact': generate_inexact_sparsity_example,
         'nonlinear': generate_nonlinear_example,
         'laplace': generate_laplace_example,
@@ -1015,6 +1196,7 @@ def main(param_path):
                 
                 result, timing_result = run_one_dgp_iter(
                     X=X,
+                    cov_matrix=cov_matrix,
                     generator=generator,
                     sigma=sigma,
                     params=params,
@@ -1056,17 +1238,23 @@ def main(param_path):
         'coef_recovery_lasso': ['mean', 'std'],
         'support_recovery_lasso': ['mean', 'std'],
         'outsample_mse_lasso': ['mean', 'std'],
+        'rte_lasso': ['mean', 'std'],
+        'f_score_lasso': ['mean', 'std'],
         'insample_ridge': ['mean', 'std'],
         'mse_ridge': ['mean', 'std'],
         'df_ridge': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_ridge': ['mean', 'std'],
         'outsample_mse_ridge': ['mean', 'std'],
+        'rte_ridge': ['mean', 'std'],
+        'f_score_ridge': ['mean', 'std'],
         'insample_elastic': ['mean', 'std'],
         'mse_elastic': ['mean', 'std'],
         'df_elastic': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_elastic': ['mean', 'std'],
         'support_recovery_elastic': ['mean', 'std'],
         'outsample_mse_elastic': ['mean', 'std'],
+        'rte_elastic': ['mean', 'std'],
+        'f_score_elastic': ['mean', 'std'],
         'best_k_bagged_gs': ['mean', 'std'],
         'insample_bagged_gs': ['mean', 'std'],
         'mse_bagged_gs': ['mean', 'std'],
@@ -1074,6 +1262,8 @@ def main(param_path):
         'coef_recovery_bagged_gs': ['mean', 'std'],
         'support_recovery_bagged_gs': ['mean', 'std'],
         'outsample_mse_bagged_gs': ['mean', 'std'],
+        'rte_bagged_gs': ['mean', 'std'],
+        'f_score_bagged_gs': ['mean', 'std'],
         'best_k_smeared_gs': ['mean', 'std'],
         'best_noise_scale': ['mean', 'std'],
         'insample_smeared_gs': ['mean', 'std'],
@@ -1082,18 +1272,24 @@ def main(param_path):
         'coef_recovery_smeared_gs': ['mean', 'std'],
         'support_recovery_smeared_gs': ['mean', 'std'],
         'outsample_mse_smeared_gs': ['mean', 'std'],
+        'rte_smeared_gs': ['mean', 'std'],
+        'f_score_smeared_gs': ['mean', 'std'],
         'insample_rgs': ['mean', 'std'],
         'mse_rgs': ['mean', 'std'],
         'df_rgs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_rgs': ['mean', 'std'],
         'support_recovery_rgs': ['mean', 'std'],
         'outsample_mse_rgs': ['mean', 'std'],
+        'rte_rgs': ['mean', 'std'],
+        'f_score_rgs': ['mean', 'std'],
         'insample_original_gs': ['mean', 'std'],
         'mse_original_gs': ['mean', 'std'],
         'df_original_gs': ['mean', 'std'],  # Degrees of freedom
         'coef_recovery_original_gs': ['mean', 'std'],
         'support_recovery_original_gs': ['mean', 'std'],
         'outsample_mse_original_gs': ['mean', 'std'],
+        'rte_original_gs': ['mean', 'std'],
+        'f_score_original_gs': ['mean', 'std'],
         'insample_base_rgs': ['mean', 'std'],
         'mse_base_rgs': ['mean', 'std'],
         'df_base_rgs': ['mean', 'std'],  # Degrees of freedom

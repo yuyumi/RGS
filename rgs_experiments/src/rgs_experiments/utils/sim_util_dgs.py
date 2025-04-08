@@ -9,7 +9,8 @@ __all__ = [
     'generate_inexact_sparsity_example',
     'generate_nonlinear_example',
     'generate_laplace_example',
-    'generate_cauchy_example'
+    'generate_cauchy_example',
+    'generate_spaced_sparsity_example'
 ]
 
 def generate_orthogonal_X(n_predictors, n_train, seed=123):
@@ -71,16 +72,22 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
         Q = ortho_group.rvs(n_per_batch)
         start_idx = n_full_repeats * n_per_batch
         X[start_idx:] = (Q @ X_base)[:remainder]
+
+    X = X - X.mean(axis=0)
     
     # Scale to match target covariance
     X = X * np.sqrt(n_predictors)
+
+    # Verify centering
+    print(f"Max column mean: {np.max(np.abs(X.mean(axis=0))):.2e}")
     
-    # Verify gram matrix structure
-    realized_gram = X.T @ X/(n_train)
-    max_diff = np.max(np.abs(realized_gram - gram_matrix))
-    print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
+    # Instead of just comparing X.T @ X/n to gram_matrix
+    X_centered = X - X.mean(axis=0)
+    realized_cov = X_centered.T @ X_centered / (n_train)
+    max_diff = np.max(np.abs(realized_cov - gram_matrix))
+    print(f"Maximum deviation from target in covariance matrix: {max_diff:.2e}")
     
-    return X
+    return X, gram_matrix
 
 def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123):
     """
@@ -108,8 +115,6 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     X : ndarray of shape (n_train, n_predictors)
         Design matrix with the specified block correlation structure
     """
-    import numpy as np
-    from scipy.stats import ortho_group
     
     np.random.seed(seed)
     
@@ -157,20 +162,26 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
         start_idx = n_full_repeats * n_per_batch
         X[start_idx:] = (Q @ X_base)[:remainder]
     
+    X = X - X.mean(axis=0)
+    
     # Scale to match target covariance
     X = X * np.sqrt(n_predictors)
+
+    # Verify centering
+    print(f"Max column mean: {np.max(np.abs(X.mean(axis=0))):.2e}")
     
-    # Verify gram matrix structure
-    realized_gram = X.T @ X/(n_train)
-    max_diff = np.max(np.abs(realized_gram - gram_matrix))
-    print(f"Maximum deviation from target in gram matrix: {max_diff:.2e}")
+    # Instead of just comparing X.T @ X/n to gram_matrix
+    X_centered = X - X.mean(axis=0)
+    realized_cov = X_centered.T @ X_centered / (n_train)
+    max_diff = np.max(np.abs(realized_cov - gram_matrix))
+    print(f"Maximum deviation from target in covariance matrix: {max_diff:.2e}")
     
     # Verify block structure
     for b in range(min(5, block_size)):  # Show just first 5 blocks
         block_cols = [i for i in range(n_predictors) if i % block_size == b]
         
         # Extract correlation sub-matrix for this block
-        block_gram = realized_gram[np.ix_(block_cols, block_cols)]
+        block_gram = realized_cov[np.ix_(block_cols, block_cols)]
         
         # Calculate mean off-diagonal correlation
         off_diag = block_gram.copy()
@@ -188,14 +199,14 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     for i in range(n_predictors):
         for j in range(i+1, n_predictors):
             if i % block_size != j % block_size:  # Different blocks
-                if abs(realized_gram[i, j]) > max_between:
-                    max_between = abs(realized_gram[i, j])
+                if abs(realized_cov[i, j]) > max_between:
+                    max_between = abs(realized_cov[i, j])
                     max_between_idx = (i, j)
                     
     if max_between_idx:
         print(f"Maximum between-block correlation: {max_between:.6e} at indices {max_between_idx}")
     
-    return X
+    return X, gram_matrix
 
 def generate_exact_sparsity_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with exact sparsity."""
@@ -204,6 +215,38 @@ def generate_exact_sparsity_example(X, signal_proportion, sigma=None, seed=123):
     n_train,p = X.shape
     signals = int(p*signal_proportion)
     beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+    
+    y_true = X @ beta
+    y = y_true + np.random.normal(0, sigma, n_train)
+
+    return X, y, y_true, beta, p, sigma
+
+def generate_spaced_sparsity_example(X, signal_proportion, sigma=None, seed=123):
+    """Generate example with evenly spaced signals across all predictors."""
+    assert sigma is not None, "sigma parameter must be provided"
+    np.random.seed(seed)
+    n_train, p = X.shape
+    signals = int(p * signal_proportion)
+    
+    # Create a beta vector of zeros
+    beta = np.zeros(p)
+    
+    if signals > 0:
+        if signals == 1:
+            # If only one signal, put it in the middle
+            beta[p // 2] = 1
+        elif signals >= p:
+            # If signals >= p, all features are signals
+            beta = np.ones(p)
+        else:
+            # Calculate indices for evenly spaced signals
+            # Use linspace to get exactly 'signals' number of points evenly spaced
+            # between 0 and p-1 (inclusive)
+            indices = np.linspace(0, p - 1, signals)
+            indices = np.round(indices).astype(int)
+            
+            # Set the signal values to 1 at the calculated indices
+            beta[indices] = 1
     
     y_true = X @ beta
     y = y_true + np.random.normal(0, sigma, n_train)

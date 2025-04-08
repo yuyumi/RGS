@@ -64,7 +64,9 @@ def create_plots_for_result(
             # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
             'mse_pve': (plot_mse_by_variance_explained, {}),
             'insample_pve': (plot_insample_by_variance_explained, {}),
-            'outsample_pve': (plot_outsample_mse_by_variance_explained, {})
+            'outsample_pve': (plot_outsample_mse_by_variance_explained, {}),
+            'coef_recovery_pve': (plot_coef_recovery_by_variance_explained, {}),
+            'rte_pve': (plot_rte_by_variance_explained, {})
         }
         
         # Generate basic plots

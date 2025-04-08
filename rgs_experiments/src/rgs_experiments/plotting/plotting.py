@@ -14,6 +14,8 @@ __all__ = [
     'plot_mse_by_variance_explained',
     'plot_insample_by_variance_explained',
     'plot_outsample_mse_by_variance_explained',
+    'plot_coef_recovery_by_variance_explained',
+    'plot_rte_by_variance_explained',
     # New bar plot functions
     'barplot_metric_by_sigma',
     'barplot_metric_by_variance_explained',
@@ -48,7 +50,8 @@ class PlottingConfig:
         'outsample_mse': 'Out-of-sample Mean Square Error',
         'df': 'Degrees of Freedom',
         'coef_recovery': 'Coefficient Recovery Error',
-        'support_recovery': 'Support Recovery Accuracy'
+        'support_recovery': 'Support Recovery Accuracy',
+        'rte': 'Relative Test Error'
     }
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
@@ -774,6 +777,12 @@ def plot_insample_by_variance_explained(*args, **kwargs):
 
 def plot_outsample_mse_by_variance_explained(*args, **kwargs):
     return plot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
+
+def plot_coef_recovery_by_variance_explained(*args, **kwargs):
+    return plot_metric_by_variance_explained(*args, metric='coef_recovery', **kwargs)
+
+def plot_rte_by_variance_explained(*args, **kwargs):
+    return plot_metric_by_variance_explained(*args, metric='rte', **kwargs)
 
 # Convenience functions for bar plots
 def barplot_mse_by_sigma(*args, **kwargs):

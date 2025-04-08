@@ -17,7 +17,7 @@
         "signal_proportion": 0.1,
         "test_size": 0.091,
         "covariance_type": "banded", 
-        "generator_type": "exact",
+        "generator_type": "spaced",
         "generator_params": {
             "eta" : 0.5
         },
