@@ -40,7 +40,7 @@ class PlottingConfig:
         'bagged_gs': '#922B21',  # Deep red
         'smeared_gs': '#CB4335',  # Medium red
         'base_gs': '#E74C3C',     # Regular red
-        'original_gs': '#F39C12',  # Orange
+        'original_gs': '#D35400',   # Orange
         'rgs': '#F8C471'          # Light orange
     }
     
@@ -189,9 +189,10 @@ def plot_metric_by_sigma(
     results_path: Path,
     metric: str = 'mse',
     save_path: Optional[Path] = None,
-    show_std: bool = False
+    show_std: bool = False,
+    log_scale: bool = False  # Default to linear scale
 ) -> Optional[plt.Figure]:
-    """Plot metric vs sigma with error bands."""
+    """Plot metric vs sigma with error bars."""
     try:
         df = pd.read_csv(results_path)
         available_methods = get_available_methods(df, metric)
@@ -215,6 +216,10 @@ def plot_metric_by_sigma(
         fig, ax = create_figure()
         setup_plot_style()
         
+        # Calculate all means and std values for proper y-axis scaling
+        all_means = []
+        all_upper_bounds = []  # For error bars if shown
+        
         for method in available_methods:
             metric_col = f'{metric}_{method}'
             grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
@@ -224,22 +229,58 @@ def plot_metric_by_sigma(
                 color=PlottingConfig.COLORS[method],
                 label=PlottingConfig.get_method_label(method))
                    
+            all_means.extend(grouped['mean'].tolist())
+            
             if show_std:
-                ax.fill_between(
+                upper_bounds = grouped['mean'] + grouped['std']
+                all_upper_bounds.extend(upper_bounds.tolist())
+                
+                # Add error bars instead of shaded regions
+                ax.errorbar(
                     grouped.index,
-                    grouped['mean'] - grouped['std'],
-                    grouped['mean'] + grouped['std'],
-                    color=PlottingConfig.COLORS[method],
-                    alpha=0.2
+                    grouped['mean'],
+                    yerr=grouped['std'],
+                    fmt='none',  # No connecting line
+                    ecolor=PlottingConfig.COLORS[method],
+                    elinewidth=1,
+                    capsize=3
                 )
         
-        ax.set_yscale('log')
-        enhance_log_axis(ax)
-        ax.set_ylim(bottom=0.0001)
+        # Apply scale based on parameter
+        if log_scale:
+            ax.set_yscale('log')
+            enhance_log_axis(ax)
+            ax.set_ylim(bottom=0.0001)
+        else:
+            # Linear scale
+            ax.set_yscale('linear')
+            
+            # Set y limits with 5% padding
+            if all_means:  # Make sure we have data
+                max_value = max(all_upper_bounds) if show_std and all_upper_bounds else max(all_means)
+                min_value = min(all_means)
+                
+                # Calculate appropriate padding (5% of range)
+                data_range = max_value - min_value
+                padding = data_range * 0.05 if data_range > 0 else max_value * 0.05
+                
+                # Set limits with padding, but don't go below 0 unless data does
+                y_min = max(0, min_value - padding) if min_value >= 0 else min_value - padding
+                y_max = max_value + padding
+                
+                ax.set_ylim(bottom=y_min, top=y_max)
+            
+            # Format y-axis for linear scale
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
+            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+            
+            # Add grid for linear scale
+            ax.grid(which='major', axis='y', linestyle='-', alpha=0.3)
+            ax.grid(which='minor', axis='y', linestyle=':', alpha=0.2)
         
         ax.set_xlabel('Sigma (Noise Level)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        # Title removed
         ax.legend(loc='upper left')
         ax.grid(True, alpha=0.3)
         
@@ -260,9 +301,10 @@ def plot_metric_by_variance_explained(
     metric: str = 'mse',
     save_path: Optional[Path] = None,
     show_std: bool = True,
+    log_scale: bool = False,  # Default to linear scale
     norm_beta: float = 10.0
 ) -> Optional[plt.Figure]:
-    """Plot metric vs proportion of variance explained with error bands."""
+    """Plot metric vs proportion of variance explained with error bars."""
     try:
         df = pd.read_csv(results_path)
         df['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
@@ -273,6 +315,10 @@ def plot_metric_by_variance_explained(
         available_methods = get_available_methods(df, metric)
         if not available_methods:
             raise ValueError(f"No {metric} data found for any method")
+        
+        # For y-axis scaling
+        all_means = []
+        all_upper_bounds = []
             
         for method in available_methods:
             metric_col = f'{metric}_{method}'
@@ -281,27 +327,64 @@ def plot_metric_by_variance_explained(
             ax.plot(grouped.index, grouped['mean'],
                 marker='o',
                 color=PlottingConfig.COLORS[method],
+                linewidth=1.5,
                 label=PlottingConfig.get_method_label(method))
+            
+            all_means.extend(grouped['mean'].tolist())
                    
             if show_std:
-                ax.fill_between(
+                upper_bounds = grouped['mean'] + grouped['std']
+                all_upper_bounds.extend(upper_bounds.tolist())
+                
+                # Add error bars instead of shaded regions
+                ax.errorbar(
                     grouped.index,
-                    grouped['mean'] - grouped['std'],
-                    grouped['mean'] + grouped['std'],
-                    color=PlottingConfig.COLORS[method],
-                    alpha=0.2
+                    grouped['mean'],
+                    yerr=grouped['std'],
+                    fmt='none',  # No connecting line
+                    ecolor=PlottingConfig.COLORS[method],
+                    elinewidth=1,
+                    capsize=3
                 )
         
-        ax.set_yscale('log')
-        enhance_log_axis(ax)
-        ax.set_ylim(bottom=0.0001)
+        # Apply scale based on parameter
+        if log_scale:
+            ax.set_yscale('log')
+            enhance_log_axis(ax)
+            ax.set_ylim(bottom=0.0001)
+        else:
+            # Linear scale
+            ax.set_yscale('linear')
+            
+            # Set y limits with 5% padding
+            if all_means:  # Make sure we have data
+                max_value = max(all_upper_bounds) if show_std and all_upper_bounds else max(all_means)
+                min_value = min(all_means)
+                
+                # Calculate appropriate padding (5% of range)
+                data_range = max_value - min_value
+                padding = data_range * 0.05 if data_range > 0 else max_value * 0.05
+                
+                # Set limits with padding, but don't go below 0 unless data does
+                y_min = max(0, min_value - padding) if min_value >= 0 else min_value - padding
+                y_max = max_value + padding
+                
+                ax.set_ylim(bottom=y_min, top=y_max)
+            
+            # Format y-axis for linear scale
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
+            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+            ax.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+            
+            # Add grid for linear scale
+            ax.grid(which='major', axis='y', linestyle='-', alpha=0.3)
+            ax.grid(which='minor', axis='y', linestyle=':', alpha=0.2)
         
         # Format x-axis with decimal intervals
         format_x_axis_decimal(ax)
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        # Title removed
         ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
         ax.grid(True, alpha=0.3)
         
@@ -328,6 +411,7 @@ def plot_mse_vs_df_by_k(
 ) -> Optional[plt.Figure]:
     """
     Plot MSE vs DF for each method, showing different k values for a specific sigma value.
+    Uses line plots to connect points for each method.
     
     Parameters:
     -----------
@@ -338,7 +422,7 @@ def plot_mse_vs_df_by_k(
     save_path : Path, optional
         Path to save the figure
     show_std : bool
-        Whether to show standard deviation as error bands (not used for k plots)
+        Whether to show standard deviation as error bars (not used for k plots)
     log_scale_mse : bool
         Whether to use log scale for MSE axis
     log_scale_df : bool
@@ -388,6 +472,16 @@ def plot_mse_vs_df_by_k(
             print(f"No methods with both MSE and DF k-specific data in {Path(results_path).name}")
             return None
         
+        # Define a dictionary of markers by method type
+        method_markers = {
+            'lasso': 'o',
+            'elastic': 's',  # square
+            'bagged_gs': 'v',  # triangle down
+            'smeared_gs': '^',  # triangle up 
+            'original_gs': 'D',  # diamond
+            'rgs': '*'  # star
+        }
+        
         # Plot each method's k progression
         for method in available_methods:
             # Extract k-specific columns
@@ -421,31 +515,20 @@ def plot_mse_vs_df_by_k(
                         df_values.append(df_value)
             
             if mse_values and df_values:
-                # Create a line connecting the points
-                # ax.plot(
-                #     mse_values, 
-                #     df_values,
-                #     '-',  # Line style
-                #     color=PlottingConfig.COLORS[method],
-                #     alpha=0.7,
-                #     linewidth=1.5,
-                #     label=PlottingConfig.get_method_label(method)
-                # )
-
-                # Define a dictionary of markers by method type
-                method_markers = {
-                    'lasso': 'o',
-                    'elastic': 's',  # square
-                    'bagged_gs': 'v',  # triangle down
-                    'smeared_gs': '^',  # triangle up 
-                    'original_gs': 'D',  # diamond
-                    'rgs': '*'  # star
-                }
-
                 # Use the dictionary to get the marker
                 marker = method_markers.get(method, 'o')
                 
-                # Plot each point with a marker
+                # Plot each point with a marker and connect with lines
+                ax.plot(
+                    mse_values, 
+                    df_values,
+                    '-',  # Line style
+                    color=PlottingConfig.COLORS[method],
+                    linewidth=1.5,
+                    label=PlottingConfig.get_method_label(method)
+                )
+                
+                # Add markers at each point
                 ax.scatter(
                     mse_values, 
                     df_values,
@@ -454,46 +537,46 @@ def plot_mse_vs_df_by_k(
                     s=60,
                     zorder=3,
                     edgecolors='black',
-                    linewidths=0.5,
-                    alpha=0.7,  # Add transparency to see overlapping points
-                    label=PlottingConfig.get_method_label(method)
+                    linewidths=0.5
                 )
                 
-                # # Add k values as text labels
-                # for i, k in enumerate(k_values[:len(mse_values)]):
-                #     # Only label some k values to avoid clutter
-                #     if k % 2 == 0 or k == k_values[-1]:  # Label even k values and the last k
-                #         ax.annotate(
-                #             f'{k}',
-                #             (mse_values[i], df_values[i]),
-                #             textcoords="offset points",
-                #             xytext=(0, 5),
-                #             ha='center',
-                #             fontsize=8,
-                #             color=PlottingConfig.COLORS[method]
-                #         )
+                # Optionally add k labels for important points
+                # Uncomment if you want to show k values
+                """
+                for i, k in enumerate(k_values[:len(mse_values)]):
+                    # Only label some k values to avoid clutter
+                    if k % 5 == 0 or k == k_values[-1]:  # Label every 5th k and the last k
+                        ax.annotate(
+                            f'{k}',
+                            (mse_values[i], df_values[i]),
+                            textcoords="offset points",
+                            xytext=(0, 7),
+                            ha='center',
+                            fontsize=8
+                        )
+                """
         
-        # Set scales
-        # if log_scale_mse:
-        #     print("here")
-        #     ax.set_xscale('log')
+        # Apply scales
+        if log_scale_mse:
+            ax.set_xscale('log')
             
         def format_plain(x, pos):
-            return f"{x:.1f}"  # Show as plain decimal with 1 decimal place
-
+            return f"{x:.2f}"  # Show as plain decimal with 2 decimal places
+            
         ax.xaxis.set_major_formatter(FuncFormatter(format_plain))
         
         if log_scale_df:
             ax.set_yscale('log')
-
-        ax.set_ylim(bottom=0.0001)
-        
+        else:
+            # For linear y-scale, set reasonable limits
+            if any(df_values):
+                y_max = max(df_values) * 1.05
+                y_min = min(df_values) * 0.95
+                ax.set_ylim(bottom=y_min, top=y_max)
+                
         # Set labels
-        ax.set_xlabel('Mean Square Error (MSE) - Training Loss')
+        ax.set_xlabel('Mean Square Error (MSE)')
         ax.set_ylabel('Degrees of Freedom (DF)')
-        
-        # Set title
-        # ax.set_title(f'Model Complexity vs. Training Loss (σ = {target_sigma:.2f})')
         
         # Add grid and legend
         ax.grid(True, alpha=0.3)
@@ -759,29 +842,37 @@ def barplot_metric_by_variance_explained(
         plt.close()
         return None
 
-# Convenience functions for original line plots
+# Update the convenience functions to use linear scale by default
 def plot_mse_by_sigma(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_sigma(*args, metric='mse', **kwargs)
 
 def plot_insample_by_sigma(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_sigma(*args, metric='insample', **kwargs)
 
 def plot_outsample_mse_by_sigma(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
 
 def plot_mse_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='mse', **kwargs)
 
 def plot_insample_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='insample', **kwargs)
 
 def plot_outsample_mse_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
 
 def plot_coef_recovery_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='coef_recovery', **kwargs)
 
 def plot_rte_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='rte', **kwargs)
 
 # Convenience functions for bar plots

@@ -72,7 +72,11 @@ class RGS(BaseEstimator, RegressorMixin):
         # Initialize
         X, y = self._validate_training_inputs(X, y)
         X_centered = X - X.mean(axis=0)
-        X_scaled = X_centered / np.sqrt(np.sum((X ** 2), axis=0))
+        
+        # Improved normalization with small epsilon to avoid division by zero (improvement #3)
+        norms = np.sqrt(np.sum((X_centered ** 2), axis=0) + 1e-10)
+        X_scaled = X_centered / norms
+        
         _, self.p = X_scaled.shape
         generator = np.random.default_rng(self.random_state)
         self.feature_sets = [Counter() for _ in range(self.k_max + 1)]
@@ -91,8 +95,8 @@ class RGS(BaseEstimator, RegressorMixin):
             coef_ = np.zeros(self.p)
             for i in range(len(Ms)):
                 M = list(Ms[i])
-                # Compute least squares solution of y on X_M
-                beta, _, _, _ = lstsq(X_centered[:, M], y)
+                # Use improved lstsq with explicit rcond parameter for better handling of small singular values (improvement #2)
+                beta, _, _, _ = lstsq(X_centered[:, M], y, lapack_driver='gelsd', cond=None)
                 residuals = y - X_centered[:, M] @ beta
                 coef_[M] += beta * freqs[i]
                 if k < self.k_max:
