@@ -9,6 +9,71 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
 from sklearn.metrics import get_scorer
 
+import numba as nb
+from numba import jit, float64, int64, boolean
+
+# Numba-optimized function for orthogonalization
+@jit(float64[:](float64[:], float64[:, :]), nopython=True)
+def orthogonalize_vector(x, Q):
+    """Orthogonalize vector x against columns of Q using Numba for speed"""
+    x_orth = x.copy()
+    for i in range(Q.shape[1]):
+        q_col = Q[:, i]
+        x_orth = x_orth - np.dot(q_col, x) * q_col
+    return x_orth
+
+
+# Numba-optimized function for incremental QR update
+@jit(nopython=True)
+def update_qr(Q, R, x_new):
+    """
+    Update QR factorization when adding column x_new
+    
+    Parameters:
+    -----------
+    Q : ndarray, shape (n, k)
+        Current Q matrix with orthonormal columns
+    R : ndarray, shape (k, k)
+        Current R matrix (upper triangular)
+    x_new : ndarray, shape (n,)
+        New column to add
+        
+    Returns:
+    --------
+    Q_new : ndarray, shape (n, k+1)
+        Updated Q matrix
+    R_new : ndarray, shape (k+1, k+1)
+        Updated R matrix
+    """
+    n, k = Q.shape
+    
+    # Project x_new onto current Q
+    r_k = Q.T @ x_new
+    
+    # Compute orthogonal component
+    q_k_plus_1 = x_new - Q @ r_k
+    q_k_plus_1_norm = np.linalg.norm(q_k_plus_1)
+    
+    # Handle numerical issues
+    if q_k_plus_1_norm < 1e-10:
+        # New vector is linearly dependent, return original Q and R
+        return Q, R
+    
+    # Normalize the new orthogonal component
+    q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
+    
+    # Construct new Q and R matrices
+    Q_new = np.empty((n, k+1))
+    Q_new[:, :k] = Q
+    Q_new[:, k] = q_k_plus_1
+    
+    R_new = np.zeros((k+1, k+1))
+    R_new[:k, :k] = R
+    R_new[:k, k] = r_k
+    R_new[k, k] = q_k_plus_1_norm
+    
+    return Q_new, R_new
+
 class RGS(BaseEstimator, RegressorMixin):
     """
     RGS is a feature selection algorithm that selects a subset of features
@@ -72,20 +137,20 @@ class RGS(BaseEstimator, RegressorMixin):
         # Initialize
         X, y = self._validate_training_inputs(X, y)
         X_centered = X - X.mean(axis=0)
+        y_centered = y - y.mean()
+        y_mean = y.mean()
         
-        # Improved normalization with small epsilon to avoid division by zero (improvement #3)
-        norms = np.sqrt(np.sum((X_centered ** 2), axis=0) + 1e-10)
-        X_scaled = X_centered / norms
-        
-        _, self.p = X_scaled.shape
+        n, self.p = X_centered.shape
         generator = np.random.default_rng(self.random_state)
         self.feature_sets = [Counter() for _ in range(self.k_max + 1)]
         self.feature_sets[0] += Counter({frozenset({}) : self.n_estimators})
         self.coef_ = []
         self.intercept_ = []
+        
         for k in range(self.k_max + 1):
-            Ms = np.array(list(self.feature_sets[k].keys())) # All feature subsets appearing at step k
-            freqs = np.array(list(self.feature_sets[k].values())) # How many times each feature subset appears in step k
+            Ms = np.array(list(self.feature_sets[k].keys())) # All feature subsets at step k
+            freqs = np.array(list(self.feature_sets[k].values())) # Their frequencies
+            
             # Resample to speed up computation
             for _ in range(self.n_resample_iter):
                 proportions = freqs / self.n_estimators
@@ -93,23 +158,54 @@ class RGS(BaseEstimator, RegressorMixin):
             Ms = Ms[freqs > 0]
             freqs = freqs[freqs > 0]
             coef_ = np.zeros(self.p)
+            
             for i in range(len(Ms)):
                 M = list(Ms[i])
-                # Use improved lstsq with explicit rcond parameter for better handling of small singular values (improvement #2)
-                beta, _, _, _ = lstsq(X_centered[:, M], y, lapack_driver='gelsd', cond=None)
-                residuals = y - X_centered[:, M] @ beta
+                
+                # QR factorization for current feature set
+                if M:
+                    Q, R = np.linalg.qr(X_centered[:, M], mode='reduced')
+                    beta = np.linalg.solve(R, Q.T @ y_centered)
+                    residuals = y_centered - Q @ (Q.T @ y_centered)
+                else:
+                    beta = np.array([])
+                    residuals = y_centered.copy()
+                    Q = np.empty((n, 0))
+                
                 coef_[M] += beta * freqs[i]
+                
                 if k < self.k_max:
-                    # Compute residual correlation with features not in M
+                    # Get candidate features not in M
                     mask = np.ones(self.p, dtype=bool)
                     mask[M] = False
                     M_comp = np.arange(self.p)[mask]
-                    correlations = np.abs(X_scaled[:, M_comp].T @ residuals)
-                    # Generate new feature subsets
-                    self.feature_sets[k+1] += self._get_new_feature_sets(M, M_comp, correlations, freqs[i], generator)
-            # Calculate parameters
+                    
+                    # Calculate forward selection criterion for each candidate
+                    fs_values = np.zeros(len(M_comp))
+                    for j in range(len(M_comp)):
+                        x_j = X_centered[:, M_comp[j]]
+                        
+                        # Project feature onto orthogonal space of current features
+                        if M:
+                            x_j_orth = x_j - Q @ (Q.T @ x_j)
+                        else:
+                            x_j_orth = x_j
+                        
+                        orth_norm = np.linalg.norm(x_j_orth)
+                        if orth_norm < 1e-10:  # Skip linearly dependent features
+                            fs_values[j] = -np.inf
+                        else:
+                            # Forward selection criterion: |⟨r, x⟩| / ‖P_M^⊥ x‖
+                            corr = np.abs(np.dot(residuals, x_j))
+                            fs_values[j] = corr / orth_norm
+                    
+                    # Generate new feature subsets using forward selection
+                    self.feature_sets[k+1] += self._get_new_feature_sets(
+                        M, M_comp, fs_values, freqs[i], generator)
+            
+            # Calculate model parameters for this step
             self.coef_.append(coef_ / self.n_estimators)
-            self.intercept_.append(y.mean() - np.dot(X.mean(axis=0), coef_ / self.n_estimators))
+            self.intercept_.append(y_mean - np.dot(X.mean(axis=0), coef_ / self.n_estimators))
 
     def predict(self, X, k=None):
         assert X.ndim == 2 and X.shape[1] == self.p
@@ -138,21 +234,47 @@ class RGS(BaseEstimator, RegressorMixin):
             X = X.values
         return X, y
 
-    def _get_new_feature_sets(self, M, M_comp, correlations, n_iter, generator):
-        # Generate candidates for next step for each iteration
+    def _get_new_feature_sets(self, M, M_comp, fs_values, n_iter, generator):
+        """
+        Generate new feature sets based on forward selection criterion.
+        
+        Parameters:
+        -----------
+        M : list
+            Current feature set
+        M_comp : array
+            Indices of features not in M
+        fs_values : array
+            Forward selection criterion values for each feature in M_comp
+        n_iter : int
+            Number of iterations to perform
+        generator : Generator
+            Random number generator
+            
+        Returns:
+        --------
+        Counter
+            New feature sets with their frequencies
+        """
+        # Sample candidate features for each iteration
         n_candidates = min(self.m, len(M_comp))
         candidates = np.zeros((n_iter, n_candidates), dtype=int)
         for iter in range(n_iter):
             candidates[iter, :] = generator.choice(range(len(M_comp)), size=n_candidates, replace=False)
-        # Compute the top candidate feature across each iteration
-        candidate_correlations = correlations[candidates.flatten()].reshape(n_iter, n_candidates)
-        max_index_in_subset = np.argmax(candidate_correlations, axis=1)
+        
+        # Select best feature from each candidate subset using forward selection
+        candidate_values = fs_values[candidates.flatten()].reshape(n_iter, n_candidates)
+        max_index_in_subset = np.argmax(candidate_values, axis=1)
         psi_vals = M_comp[candidates[range(n_iter), max_index_in_subset]]
-        # Summarize the results in a Counter object
+        
+        # Count frequencies of selected features
         psi_freqs = np.bincount(psi_vals)
         psi_vals_unique = np.nonzero(psi_freqs)[0]
+        
+        # Create new feature sets by adding selected features to M
         M_new_unique = [frozenset(set(M) | {feat}) for feat in psi_vals_unique]
         M_new_freqs = Counter(dict(zip(M_new_unique, psi_freqs[psi_vals_unique])))
+        
         return M_new_freqs
 
 class RGSCV(BaseEstimator, RegressorMixin):

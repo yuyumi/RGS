@@ -385,7 +385,7 @@ def plot_metric_by_variance_explained(
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
+        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte'] else 'upper left')
         ax.grid(True, alpha=0.3)
         
         if save_path:
