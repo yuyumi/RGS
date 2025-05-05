@@ -32,8 +32,20 @@ def run_multiple_simulations(params_dir='params', pattern=None):
         print('='*80)
         
         try:
-            # Update to capture all four return values
+            import cProfile
+            import pstats
+            
+            # Profile the entire simulation
+            pr = cProfile.Profile()
+            pr.enable()
+            
             results_df, summary, timing_df, timing_summary = run_simulation(param_file)
+            
+            pr.disable()
+            stats = pstats.Stats(pr)
+            stats.sort_stats('cumulative')
+            stats.print_stats(30)  # Show top 30 functions
+            
             print(f"Simulation completed successfully: {param_file.name}")
         except Exception as e:
             print(f"Error running simulation {param_file.name}:")

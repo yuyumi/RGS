@@ -44,19 +44,20 @@ def update_qr(Q, R, x_new):
     # Normalize the new orthogonal component
     q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
     
-    # Construct new Q and R matrices
-    Q_new = np.empty((n, k+1))
-    Q_new[:, :k] = Q
-    Q_new[:, k] = q_k_plus_1
+    # Extend Q by appending new column (more efficient than full reconstruction)
+    Q_new = np.concatenate((Q, q_k_plus_1.reshape(-1, 1)), axis=1)
     
+    # Extend R incrementally
+    # First create new R with extended shape
     R_new = np.zeros((k+1, k+1))
+    # Copy existing upper triangular part
     R_new[:k, :k] = R
+    # Add new column
     R_new[:k, k] = r_k
+    # Add diagonal element
     R_new[k, k] = q_k_plus_1_norm
     
-    Q_new = np.ascontiguousarray(Q_new)
-    R_new = np.ascontiguousarray(R_new)
-    return Q_new, R_new
+    return np.ascontiguousarray(Q_new), np.ascontiguousarray(R_new)
 
 class RGS(BaseEstimator, RegressorMixin):
     """
@@ -137,35 +138,38 @@ class RGS(BaseEstimator, RegressorMixin):
         feature_norms[feature_norms < 1e-10] = 1.0
         
         for k in range(self.k_max + 1):
-            Ms = np.array(list(self.feature_sets[k].keys()), dtype=object)  
+            Ms = list(self.feature_sets[k].keys())   
             freqs = np.array(list(self.feature_sets[k].values()))
+
+            if len(freqs) == 0 or freqs.sum() == 0:
+                continue  # Skip this k value
             
             # Resample to speed up computation
             for _ in range(self.n_resample_iter):
                 proportions = freqs / self.n_estimators
                 freqs = generator.multinomial(self.n_estimators, proportions)
-            Ms = Ms[freqs > 0]
+            valid_indices = np.where(freqs > 0)[0]
+            Ms = [Ms[i] for i in valid_indices]
             freqs = freqs[freqs > 0]
-            coef_ = np.zeros(self.p)
+
+            # Compute QR once per unique subset
+            unique_Ms = list(set(Ms))
+            qr_results = {}
             
-            for i in range(len(Ms)):
-                M = np.array(Ms[i], dtype=int)
-
-
-                # QR factorization with incremental updates
+            for unique_M in unique_Ms:
+                M = np.array(unique_M, dtype=int)
+                
+                # Your existing QR computation logic:
                 if M.size > 0:
-                    # Start with first feature
-                    x_first = X_centered[:, M[0]]
+                    x_first = np.ascontiguousarray(X_centered[:, M[0]])
                     q_norm = np.linalg.norm(x_first)
-                    Q = np.ascontiguousarray(x_first.reshape(-1, 1) / q_norm)
-                    R = np.array([[q_norm]])
+                    Q = x_first.reshape(-1, 1) / q_norm
+                    R = np.ascontiguousarray(np.array([[q_norm]]))
                     
-                    # Incrementally add remaining features
                     for j in range(1, len(M)):
-                        x_next = np.ascontiguousarray(X_centered[:, M[j]])
+                        x_next = X_centered[:, M[j]]
                         Q, R = update_qr(Q, R, x_next)
                     
-                    # Solve for coefficients
                     beta = np.linalg.solve(R, Q.T @ y_centered)
                     residuals = y_centered - Q @ (Q.T @ y_centered)
                 else:
@@ -174,18 +178,85 @@ class RGS(BaseEstimator, RegressorMixin):
                     Q = np.empty((n, 0))
                     R = np.empty((0, 0))
                 
+                qr_results[unique_M] = (Q, R, beta, residuals)
+
+            coef_ = np.zeros(self.p)
+
+            # print(f"k={k}")
+            # print(f"len(Ms)={len(Ms)}")
+            # print(f"len(freqs)={len(freqs)}")
+            # print(f"valid_indices={valid_indices}")
+            # print(f"len(valid_indices)={len(valid_indices)}")
+            
+            for i in range(len(Ms)):
+                # print(f"i={i}, len(Ms)={len(Ms)}")
+                # if i < len(Ms):
+                #     print(f"About to access Ms[{i}]")
+                #     print(f"Ms[{i}]={Ms[i]}")
+                # else:
+                #     print(f"ERROR: i={i} >= len(Ms)={len(Ms)}")
+                M = Ms[i]
+                # print(f"qr_results keys: {list(qr_results.keys())}")
+                # print(f"qr_results has empty tuple? {() in qr_results}")
+                if M in qr_results:
+                    Q, R, beta, residuals = qr_results[M]
+                else:
+                    print(f"ERROR: M={M} not found in qr_results")
+                    # Debug what happened
+                    print(f"unique_Ms: {unique_Ms}")
+                    print(f"Ms: {Ms}")
+                # Q, R, beta, residuals = qr_results[M]
+
+                # # QR factorization with incremental updates
+                # if M.size > 0:
+                #     # Start with first feature
+                #     x_first = np.ascontiguousarray(X_centered[:, M[0]])
+                #     q_norm = np.linalg.norm(x_first)
+                #     Q = np.ascontiguousarray(x_first.reshape(-1, 1) / q_norm)
+                #     R = np.array([[q_norm]])
+                    
+                #     # Incrementally add remaining features
+                #     for j in range(1, len(M)):
+                #         x_next = np.ascontiguousarray(X_centered[:, M[j]])
+                #         Q, R = update_qr(Q, R, x_next)
+                    
+                #     # Solve for coefficients
+                #     beta = np.linalg.solve(R, Q.T @ y_centered)
+                #     residuals = y_centered - Q @ (Q.T @ y_centered)
+                # else:
+                #     beta = np.array([])
+                #     residuals = y_centered.copy()
+                #     Q = np.empty((n, 0))
+                #     R = np.empty((0, 0))
+                
                 # print(f"k={k}, i={i}")
                 # print(f"M={M}, type={type(M)}")
                 # print(f"beta.shape={beta.shape}")
                 # print(f"freqs[i]={freqs[i]}")
                 # print(f"coef_.shape={coef_.shape}")
 
-                coef_[M] += beta * freqs[i]
+                if len(M) > 0:  # Check if M is non-empty tuple
+                    # print(f"M: {M}")
+                    # print(f"M type: {type(M)}")
+                    # print(f"M contents types: {[type(x) for x in M]}")
+                    try:
+                        M_as_array = np.array(M, dtype=int)
+                        # print(f"M_as_array: {M_as_array}")
+                        # print(f"M_as_array.dtype: {M_as_array.dtype}")
+                    except Exception as e:
+                        print(f"Error converting M to array: {e}")
+                    # M_as_array = np.array(M, dtype=int)
+                    coef_[M_as_array] += beta * freqs[i]
+                else:
+                    # Don't try to index with empty array
+                    assert len(beta) == 0
                 
                 if k < self.k_max:
                     # Get candidate features
                     mask = np.ones(self.p, dtype=bool)
-                    mask[M] = False
+                    if len(M) > 0:  # Only set mask if M is non-empty
+                        mask[M_as_array] = False
+                    # mask[M] = False
                     M_comp = np.arange(self.p)[mask]
                     
                     # Numba optimized forward selection computation
@@ -193,7 +264,8 @@ class RGS(BaseEstimator, RegressorMixin):
                         X_centered, residuals, M_comp, Q, feature_norms)
                     
                     # Generate new feature subsets
-                    self.feature_sets[k+1].update(self._get_new_feature_sets(
+                    if len(M_comp) > 0:
+                        self.feature_sets[k+1].update(self._get_new_feature_sets(
                         M, M_comp, fs_values, freqs[i], generator))
             
             # Calculate model parameters
@@ -201,53 +273,38 @@ class RGS(BaseEstimator, RegressorMixin):
             self.intercept_.append(y_mean - np.dot(X.mean(axis=0), coef_ / self.n_estimators))
 
     @staticmethod
-    @jit(nopython=True)
+    # @jit(nopython=True)
     def _compute_fs_values(X_centered, residuals, M_comp, Q, feature_norms):
         """
-        Compute forward selection criterion values using optimized Numba
+        Compute forward selection criterion values using vectorized operations.
         """
-        fs_values = np.zeros(len(M_comp))
-        n_candidates = len(M_comp)
+        # Get all candidate features at once
+        X_candidates = X_centered[:, M_comp]
         
-        # Precompute all correlations with residuals at once
-        X_candidates = np.ascontiguousarray(X_centered[:, M_comp])
-        correlations = np.zeros(n_candidates)
-        for idx in range(n_candidates):
-            correlations[idx] = np.abs(np.dot(residuals, X_candidates[:, idx]))
+        # Compute correlations using matrix multiplication (vectorized)
+        correlations = np.abs(residuals @ X_candidates)
         
         # Check if Q is empty (first feature selection)
         if Q.shape[1] == 0:
-            # If Q is empty, just return correlations normalized by feature norms
-            for idx in nb.prange(n_candidates):
-                fs_values[idx] = correlations[idx] / feature_norms[M_comp[idx]]
-            return fs_values
-        
-        # For non-empty Q, compute orthogonal components
-        # Precompute Q'X for all candidate features
-        QTX = np.zeros((Q.shape[1], n_candidates))
-        for q_idx in range(Q.shape[1]):
-            for x_idx in range(n_candidates):
-                QTX[q_idx, x_idx] = np.dot(Q[:, q_idx], X_candidates[:, x_idx])
-        
-        # Compute orthogonal components and their norms in parallel
-        for idx in nb.prange(n_candidates):
-            x_j = X_candidates[:, idx]
+            # Simply normalize by feature norms
+            fs_values = correlations / feature_norms[M_comp]
+        else:
+            # Pre-compute Q transpose
+            Q_T = Q.T
             
-            # Compute orthogonal component using precomputed Q'X
-            x_j_orth = x_j.copy()
-            for q_idx in range(Q.shape[1]):
-                proj = QTX[q_idx, idx]
-                x_j_orth = x_j_orth - proj * Q[:, q_idx]
+            # Compute all projections at once using matrix multiplication
+            proj_matrix = Q_T @ X_candidates
             
-            # Compute norm of orthogonal component
-            orth_norm = np.linalg.norm(x_j_orth)
+            # Compute orthogonal components for all candidates
+            x_orth = X_candidates - Q @ proj_matrix
             
-            # Skip if linearly dependent
-            if orth_norm < 1e-10:
-                fs_values[idx] = -np.inf
-            else:
-                # Forward selection criterion
-                fs_values[idx] = correlations[idx] / orth_norm
+            # Compute norms of orthogonal components
+            orth_norms = np.linalg.norm(x_orth, axis=0)
+            
+            # Handle numerical issues where vectors are linearly dependent
+            valid_mask = orth_norms > 1e-10
+            fs_values = np.full(len(M_comp), -np.inf)
+            fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
         
         return fs_values
 
@@ -300,14 +357,20 @@ class RGS(BaseEstimator, RegressorMixin):
         Counter
             New feature sets with their frequencies
         """
+        if len(M_comp) == 0:
+            return {}
         # Sample candidate features for each iteration
         n_candidates = min(self.m, len(M_comp))
+        if n_candidates == 0:
+            return {}
         candidates = np.zeros((n_iter, n_candidates), dtype=int)
         for iter in range(n_iter):
             candidates[iter, :] = generator.choice(range(len(M_comp)), size=n_candidates, replace=False)
         
         # Select best feature from each candidate subset using forward selection
         candidate_values = fs_values[candidates.flatten()].reshape(n_iter, n_candidates)
+        if candidate_values.size == 0:
+            return {}
         max_index_in_subset = np.argmax(candidate_values, axis=1)
         psi_vals = M_comp[candidates[range(n_iter), max_index_in_subset]]
         
