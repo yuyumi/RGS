@@ -12,8 +12,7 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 
 # Import from core RGS package
 from rgs.core.rgs import RGS, RGSCV
-from rgs.bogdan_penalty import create_bogdan_scorer
-from rgs.aic_penalty import create_aic_scorer
+from rgs.mse import create_mse_scorer
 
 # Import from simulation package
 from rgs_experiments.utils.sim_util_dgs import *
@@ -534,8 +533,8 @@ def run_one_dgp_iter(
             X, 
             params['data']['signal_proportion'], 
             sigma,
-            eta=eta,
-            seed=seed+sim_num
+            seed=seed+sim_num,
+            eta=eta
         )
     else:
         # Original code for other generators
@@ -685,7 +684,7 @@ def run_one_dgp_iter(
     })
 
     # Create penalized scorer factory with true sigma^2
-    make_k_scorer = create_aic_scorer(
+    make_k_scorer = create_mse_scorer(
         sigma=sigma,
         n=params['data']['n_train'],
         p=params['data']['n_predictors']

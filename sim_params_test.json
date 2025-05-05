@@ -1,6 +1,6 @@
 {
     "simulation": {
-        "n_sim": 5,
+        "n_sim": 1,
         "base_seed": 42,
         "sigma": {
             "type": "pve",
@@ -12,9 +12,9 @@
         }
     },
     "data": {
-        "n_predictors": 800,
+        "n_predictors": 100,
         "n_train": 1100,
-        "signal_proportion": 0.0125,
+        "signal_proportion": 0.1,
         "test_size": 0.091,
         "covariance_type": "banded", 
         "generator_type": "exact",
