@@ -48,7 +48,7 @@ class BaggedGS(BaseEstimator, RegressorMixin):
             raise ValueError("scoring should be None, a string, or a callable")
     
     def _fit_individual_gs(self, X, y, bootstrap=True, random_state=None):
-        """Fit a single GS model with k_max steps."""
+        """Fit a single GS model with k_max steps using RGS forward selection criterion."""
         n, p = X.shape
         generator = np.random.RandomState(random_state)
         
@@ -68,52 +68,98 @@ class BaggedGS(BaseEstimator, RegressorMixin):
         
         # Initialize storage for all k steps
         coefs = np.zeros((self.k_max + 1, p))
-        intercepts = np.zeros(self.k_max + 1)
+        intercepts = np.full(self.k_max + 1, y_mean)
         selected_features = [[] for _ in range(self.k_max + 1)]
         
-        # For k=0, empty model
-        intercepts[0] = y_mean
+        # Pre-compute feature norms for normalization
+        feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
+        feature_norms[feature_norms < 1e-10] = 1.0
         
-        # Initial residuals are centered y
+        # Initial residuals
         residuals = y_centered.copy()
         
-        # Scale X for correlations
-        X_norms = np.sqrt(np.sum(X_centered ** 2, axis=0) + 1e-10)
-        X_scaled = X_centered / X_norms
+        # Initialize QR factorization
+        Q = np.empty((n, 0))
+        R = np.empty((0, 0))
         
-        # Greedy forward selection
+        # Track selected features
         selected_set = set()
         
         for k in range(1, self.k_max + 1):
             # Get remaining features
-            remaining = list(set(range(p)) - selected_set)
-            if not remaining:
-                # If we've selected all features, just copy the previous step
+            mask = np.ones(p, dtype=bool)
+            mask[list(selected_set)] = False
+            remaining_indices = np.arange(p)[mask]
+            
+            if len(remaining_indices) == 0:
+                # No more features, copy previous values
                 coefs[k] = coefs[k-1]
                 intercepts[k] = intercepts[k-1]
                 selected_features[k] = selected_features[k-1].copy()
                 continue
                 
-            # Calculate correlations with current residuals
-            correlations = np.abs(X_scaled[:, remaining].T @ residuals)
+            # Calculate forward selection criterion (same as RGS)
+            X_candidates = X_centered[:, remaining_indices]
+            correlations = np.abs(residuals @ X_candidates)
             
-            # Select best feature
-            best_idx_pos = np.argmax(correlations)
-            best_feature = remaining[best_idx_pos]
+            if Q.shape[1] == 0:
+                # First feature selection: normalize by feature norms
+                fs_values = correlations / feature_norms[remaining_indices]
+            else:
+                # Compute orthogonal components
+                proj_matrix = Q.T @ X_candidates
+                x_orth = X_candidates - Q @ proj_matrix
+                orth_norms = np.linalg.norm(x_orth, axis=0)
+                
+                # Handle numerical issues
+                valid_mask = orth_norms > 1e-10
+                fs_values = np.full(len(remaining_indices), -np.inf)
+                fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
+            
+            # Select best feature based on forward selection criterion
+            best_idx_rel = np.argmax(fs_values)
+            best_feature = remaining_indices[best_idx_rel]
             selected_set.add(best_feature)
             selected_features[k] = list(selected_set)
             
-            # Fit least squares on selected features
-            features = selected_features[k]
-            X_selected = X_centered[:, features]
-            beta, *_ = np.linalg.lstsq(X_selected, y_centered, rcond=None)
+            # Update QR factorization incrementally
+            x_new = X_centered[:, best_feature]
+            if k == 1:
+                # Initialize QR
+                q_norm = np.linalg.norm(x_new)
+                Q = x_new.reshape(-1, 1) / q_norm
+                R = np.array([[q_norm]])
+            else:
+                # Update QR
+                r_k = Q.T @ x_new
+                q_k_plus_1 = x_new - Q @ r_k
+                q_k_plus_1_norm = np.linalg.norm(q_k_plus_1)
+                
+                if q_k_plus_1_norm > 1e-10:
+                    # Normalize new Q component
+                    q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
+                    
+                    # Extend Q
+                    Q = np.column_stack([Q, q_k_plus_1])
+                    
+                    # Extend R
+                    R_new = np.zeros((k, k))
+                    R_new[:k-1, :k-1] = R
+                    R_new[:k-1, k-1] = r_k
+                    R_new[k-1, k-1] = q_k_plus_1_norm
+                    R = R_new
+                else:
+                    # Linear dependency case, return Q, R unchanged
+                    pass
             
-            # Update coefficients and intercept
-            coefs[k, features] = beta
-            intercepts[k] = y_mean
+            # Solve for coefficients using QR factorization
+            beta = np.linalg.solve(R, Q.T @ y_centered)
+            
+            # Update coefficients
+            coefs[k, selected_features[k]] = beta
             
             # Update residuals
-            residuals = y_centered - X_selected @ beta
+            residuals = y_centered - Q @ (Q.T @ y_centered)
         
         return coefs, intercepts, selected_features
     
