@@ -25,6 +25,7 @@ __all__ = [
     'barplot_mse_by_variance_explained',
     'barplot_insample_by_variance_explained',
     'barplot_outsample_mse_by_variance_explained',
+    'barplot_rte_by_variance_explained',
     'plot_mse_vs_df_by_k'
 ]
 
@@ -802,18 +803,17 @@ def barplot_metric_by_variance_explained(
             ax.set_yscale('log')
             enhance_log_axis(ax)
         else:
-            # For linear scale, ensure y-axis starts from 0
-            ax.set_ylim(bottom=0)
+            # For linear scale or for RTE
+            if metric != 'rte':
+                # For non-RTE metrics, start from 0
+                ax.set_ylim(bottom=0)
             
             # Add proper y-tick formatting for linear scale
-            formatter = ticker.FormatStrFormatter('%.2f')
+            formatter = ticker.FormatStrFormatter('%.3f')
             ax.yaxis.set_major_formatter(formatter)
             
             # Set major ticks at reasonable intervals
-            if metric in ['mse', 'insample', 'outsample_mse']:
-                max_val = max([max(df[f'{metric}_{m}']) for m in available_methods if f'{metric}_{m}' in df.columns])
-                tick_interval = max(0.1, max_val / 10)  # Reasonable interval based on data range
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(tick_interval))
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
             
             # Add minor ticks for better gridlines
             ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(2))
@@ -830,6 +830,28 @@ def barplot_metric_by_variance_explained(
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
         ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
         ax.grid(True, axis='y', alpha=0.3)
+
+        if metric == 'rte' and not log_scale:
+            # Get all plotted values including error bars
+            all_values = []
+            for method in available_methods:
+                metric_col = f'{metric}_{method}'
+                for var_expl in var_explained_values:
+                    var_data = df[np.isclose(df['var_explained_rounded'], var_expl)][metric_col]
+                    mean = var_data.mean()
+                    std = var_data.std() if show_std else 0
+                    all_values.extend([mean - std, mean + std])
+            
+            # Set limits with 5% padding
+            if all_values:
+                y_min = min(all_values)
+                y_max = max(all_values)
+                
+                # Add padding (5% of range)
+                data_range = y_max - y_min
+                padding = data_range * 0.05
+                
+                ax.set_ylim(bottom=y_min - padding, top=y_max + padding)
         
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -893,3 +915,7 @@ def barplot_insample_by_variance_explained(*args, **kwargs):
 
 def barplot_outsample_mse_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)
+
+def barplot_rte_by_variance_explained(*args, **kwargs):
+    """Create bar plot of RTE by variance explained."""
+    return barplot_metric_by_variance_explained(*args, metric='rte', **kwargs)

@@ -82,22 +82,22 @@ class BaggedGS(BaseEstimator, RegressorMixin):
         Q = np.empty((n, 0))
         R = np.empty((0, 0))
         
-        # Track selected features
-        selected_set = set()
+        # Track selected features efficiently
+        unselected_mask = np.ones(p, dtype=bool)
+        selected_indices = []
         
         for k in range(1, self.k_max + 1):
-            # Get remaining features
-            mask = np.ones(p, dtype=bool)
-            mask[list(selected_set)] = False
-            remaining_indices = np.arange(p)[mask]
-            
-            if len(remaining_indices) == 0:
+            # Check for remaining features
+            if not np.any(unselected_mask):
                 # No more features, copy previous values
                 coefs[k] = coefs[k-1]
                 intercepts[k] = intercepts[k-1]
                 selected_features[k] = selected_features[k-1].copy()
                 continue
                 
+            # Get remaining indices efficiently
+            remaining_indices = np.where(unselected_mask)[0]
+            
             # Calculate forward selection criterion (same as RGS)
             X_candidates = X_centered[:, remaining_indices]
             correlations = np.abs(residuals @ X_candidates)
@@ -106,8 +106,11 @@ class BaggedGS(BaseEstimator, RegressorMixin):
                 # First feature selection: normalize by feature norms
                 fs_values = correlations / feature_norms[remaining_indices]
             else:
+                # Cache Q transpose for efficiency
+                Q_T = Q.T
+                
                 # Compute orthogonal components
-                proj_matrix = Q.T @ X_candidates
+                proj_matrix = Q_T @ X_candidates
                 x_orth = X_candidates - Q @ proj_matrix
                 orth_norms = np.linalg.norm(x_orth, axis=0)
                 
@@ -119,8 +122,11 @@ class BaggedGS(BaseEstimator, RegressorMixin):
             # Select best feature based on forward selection criterion
             best_idx_rel = np.argmax(fs_values)
             best_feature = remaining_indices[best_idx_rel]
-            selected_set.add(best_feature)
-            selected_features[k] = list(selected_set)
+            
+            # Update selection tracking
+            selected_indices.append(best_feature)
+            unselected_mask[best_feature] = False
+            selected_features[k] = selected_indices.copy()
             
             # Update QR factorization incrementally
             x_new = X_centered[:, best_feature]
@@ -148,18 +154,16 @@ class BaggedGS(BaseEstimator, RegressorMixin):
                     R_new[:k-1, k-1] = r_k
                     R_new[k-1, k-1] = q_k_plus_1_norm
                     R = R_new
-                else:
-                    # Linear dependency case, return Q, R unchanged
-                    pass
             
             # Solve for coefficients using QR factorization
             beta = np.linalg.solve(R, Q.T @ y_centered)
             
             # Update coefficients
-            coefs[k, selected_features[k]] = beta
+            coefs[k, selected_indices] = beta
             
-            # Update residuals
-            residuals = y_centered - Q @ (Q.T @ y_centered)
+            # Update residuals only when needed
+            if k < self.k_max:
+                residuals = y_centered - Q @ (Q.T @ y_centered)
         
         return coefs, intercepts, selected_features
     
