@@ -1,13 +1,13 @@
 {
     "simulation": {
-        "n_sim": 1,
+        "n_sim": 5,
         "base_seed": 42,
         "sigma": {
             "type": "pve",
             "params": {
-                "num_points": 5,
-                "min_pve": 0.1,
-                "max_pve": 0.5
+                "num_points": 1,
+                "min_pve": 0.3,
+                "max_pve": 0.3
             }
         }
     },
@@ -41,7 +41,7 @@
         "rgscv": {
             "n_estimators": 500,
             "n_resample_iter": 7,
-            "cv": 5
+            "cv": 10
         },
         "bagged_gs": {
             "n_estimators": 500,

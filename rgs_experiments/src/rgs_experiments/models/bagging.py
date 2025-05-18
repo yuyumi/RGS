@@ -2,12 +2,12 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.model_selection import KFold
 from sklearn.metrics import get_scorer
+from rgs import RGS  # Import RGS class
 
 class BaggedGS(BaseEstimator, RegressorMixin):
     """
     Bagged Greedy Selection with CV for optimal k.
-    First creates an ensemble through bootstrap sampling,
-    then finds the optimal k for the whole ensemble.
+    Uses RGS with m=p and B=1 for each bootstrap sample.
     
     Parameters
     ----------
@@ -48,7 +48,7 @@ class BaggedGS(BaseEstimator, RegressorMixin):
             raise ValueError("scoring should be None, a string, or a callable")
     
     def _fit_individual_gs(self, X, y, bootstrap=True, random_state=None):
-        """Fit a single GS model with k_max steps using RGS forward selection criterion."""
+        """Fit a single GS model using RGS with m=p and B=1."""
         n, p = X.shape
         generator = np.random.RandomState(random_state)
         
@@ -61,109 +61,25 @@ class BaggedGS(BaseEstimator, RegressorMixin):
             X_sample = X
             y_sample = y
         
-        # Center the data
-        X_centered = X_sample - X_sample.mean(axis=0)
-        y_centered = y_sample - y_sample.mean()
-        y_mean = y_sample.mean()
+        # Use RGS with m=p (all features) and B=1 (one replicate)
+        rgs = RGS(
+            k_max=self.k_max,
+            m=p,  # Use all features as candidates
+            n_estimators=1,  # Single replicate
+            random_state=random_state
+        )
+        rgs.fit(X_sample, y_sample)
         
-        # Initialize storage for all k steps
-        coefs = np.zeros((self.k_max + 1, p))
-        intercepts = np.full(self.k_max + 1, y_mean)
+        # Extract coefficients and intercepts for all k values
+        coefs = np.array([coef for coef in rgs.coef_])
+        intercepts = np.array([intercept for intercept in rgs.intercept_])
+        
+        # Extract selected features
         selected_features = [[] for _ in range(self.k_max + 1)]
-        
-        # Pre-compute feature norms for normalization
-        feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
-        feature_norms[feature_norms < 1e-10] = 1.0
-        
-        # Initial residuals
-        residuals = y_centered.copy()
-        
-        # Initialize QR factorization
-        Q = np.empty((n, 0))
-        R = np.empty((0, 0))
-        
-        # Track selected features efficiently
-        unselected_mask = np.ones(p, dtype=bool)
-        selected_indices = []
-        
         for k in range(1, self.k_max + 1):
-            # Check for remaining features
-            if not np.any(unselected_mask):
-                # No more features, copy previous values
-                coefs[k] = coefs[k-1]
-                intercepts[k] = intercepts[k-1]
-                selected_features[k] = selected_features[k-1].copy()
-                continue
-                
-            # Get remaining indices efficiently
-            remaining_indices = np.where(unselected_mask)[0]
-            
-            # Calculate forward selection criterion (same as RGS)
-            X_candidates = X_centered[:, remaining_indices]
-            correlations = np.abs(residuals @ X_candidates)
-            
-            if Q.shape[1] == 0:
-                # First feature selection: normalize by feature norms
-                fs_values = correlations / feature_norms[remaining_indices]
-            else:
-                # Cache Q transpose for efficiency
-                Q_T = Q.T
-                
-                # Compute orthogonal components
-                proj_matrix = Q_T @ X_candidates
-                x_orth = X_candidates - Q @ proj_matrix
-                orth_norms = np.linalg.norm(x_orth, axis=0)
-                
-                # Handle numerical issues
-                valid_mask = orth_norms > 1e-10
-                fs_values = np.full(len(remaining_indices), -np.inf)
-                fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
-            
-            # Select best feature based on forward selection criterion
-            best_idx_rel = np.argmax(fs_values)
-            best_feature = remaining_indices[best_idx_rel]
-            
-            # Update selection tracking
-            selected_indices.append(best_feature)
-            unselected_mask[best_feature] = False
-            selected_features[k] = selected_indices.copy()
-            
-            # Update QR factorization incrementally
-            x_new = X_centered[:, best_feature]
-            if k == 1:
-                # Initialize QR
-                q_norm = np.linalg.norm(x_new)
-                Q = x_new.reshape(-1, 1) / q_norm
-                R = np.array([[q_norm]])
-            else:
-                # Update QR
-                r_k = Q.T @ x_new
-                q_k_plus_1 = x_new - Q @ r_k
-                q_k_plus_1_norm = np.linalg.norm(q_k_plus_1)
-                
-                if q_k_plus_1_norm > 1e-10:
-                    # Normalize new Q component
-                    q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
-                    
-                    # Extend Q
-                    Q = np.column_stack([Q, q_k_plus_1])
-                    
-                    # Extend R
-                    R_new = np.zeros((k, k))
-                    R_new[:k-1, :k-1] = R
-                    R_new[:k-1, k-1] = r_k
-                    R_new[k-1, k-1] = q_k_plus_1_norm
-                    R = R_new
-            
-            # Solve for coefficients using QR factorization
-            beta = np.linalg.solve(R, Q.T @ y_centered)
-            
-            # Update coefficients
-            coefs[k, selected_indices] = beta
-            
-            # Update residuals only when needed
-            if k < self.k_max:
-                residuals = y_centered - Q @ (Q.T @ y_centered)
+            # Get indices of non-zero coefficients
+            selected = np.where(np.abs(coefs[k]) > 1e-10)[0]
+            selected_features[k] = list(selected)
         
         return coefs, intercepts, selected_features
     
