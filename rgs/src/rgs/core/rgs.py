@@ -620,7 +620,7 @@ class RGS(BaseEstimator, RegressorMixin):
         self.n_samples, self.n_features = X.shape
         
         # Specialized path for m=p, B=1 case
-        if self.m == self.n_features and self.n_estimators == 1:
+        if self.m == self.n_features:
             return self._fit_specialized_forward_selection(X, y)
         
         # Initialize data with vectorized operations
