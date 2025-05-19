@@ -30,7 +30,7 @@ class SmearedGS(BaseEstimator, RegressorMixin):
         If string, uses sklearn's scoring methods.
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
-    def __init__(self, k_max, n_estimators=1000, noise_scale=1.0, 
+    def __init__(self, k_max, n_estimators=500, noise_scale=1.0, 
                  random_state=None, cv=5, scoring=None):
         self.k_max = k_max
         self.n_estimators = n_estimators

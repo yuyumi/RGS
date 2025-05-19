@@ -28,7 +28,7 @@ class BaggedGS(BaseEstimator, RegressorMixin):
         If string, uses sklearn's scoring methods.
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
-    def __init__(self, k_max, n_estimators=1000, random_state=None, cv=5, scoring=None):
+    def __init__(self, k_max, n_estimators=500, random_state=None, cv=5, scoring=None):
         self.k_max = k_max
         self.n_estimators = n_estimators
         self.random_state = random_state

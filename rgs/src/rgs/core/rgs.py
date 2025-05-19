@@ -1,4 +1,5 @@
 from collections import Counter
+import warnings
 import numpy as np
 import pandas as pd
 
@@ -312,7 +313,9 @@ class RGS(BaseEstimator, RegressorMixin):
         # Sort feature sets by size for better cache locality
         sorted_sets = sorted(active_sets.items(), key=lambda x: (len(x[0]), x[0]))
         
-        # Process all feature sets
+        # First pass: Compute QR, coefficients, and residuals for all feature sets
+        all_data = []  # Will store (M, freq, Q, R, residuals, unselected_features)
+        
         for M, freq in sorted_sets:
             # Get or compute QR with frequency tracking
             if M in qr_cache:
@@ -322,7 +325,6 @@ class RGS(BaseEstimator, RegressorMixin):
                 if len(M) > 0:
                     M_array = np.array(M, dtype=int)
                     X_M = X_centered[:, M_array]
-                    # Use scipy's faster QR implementation
                     Q, R = linalg.qr(X_M, mode='economic', check_finite=False)
                 else:
                     Q = np.empty((self.n_samples, 0))
@@ -333,145 +335,266 @@ class RGS(BaseEstimator, RegressorMixin):
             # Compute coefficients
             if len(M) > 0:
                 M_array = np.array(M, dtype=int)
-                # Fast triangular solver from scipy
-                beta = linalg.solve_triangular(R, Q.T @ y_centered, 
-                                              lower=False, check_finite=False)
-                
-                # Vectorized coefficient update
+                beta = linalg.solve_triangular(R, Q.T @ y_centered, lower=False, check_finite=False)
                 coef_k[M_array] += beta * freq
             
             # Compute residuals
-            if len(M) > 0:
-                # Fast residual computation using BLAS-optimized operations
-                residuals = y_centered - Q @ (Q.T @ y_centered)
-            else:
-                residuals = y_centered.copy()
+            residuals = y_centered - Q @ (Q.T @ y_centered) if len(M) > 0 else y_centered.copy()
             
-            # Update QR cache frequency and clean up if needed
+            # Update QR cache frequency
             qr_cache[M] = (Q, R, cache_freq - freq)
             if qr_cache[M][2] <= 0:
                 del qr_cache[M]
             
-            # Process candidates in batch if not at max features
-            batch_results = self._batch_process_candidates(
-                X_centered, residuals, Q, M, freq, feature_norms)
+            # Get unselected features
+            unselected_mask = np.ones(self.n_features, dtype=bool)
+            if len(M) > 0:
+                unselected_mask[list(M)] = False
+            M_comp = np.nonzero(unselected_mask)[0]
             
-            # Update new feature sets
-            for new_M, new_freq in batch_results.items():
-                if new_M in new_sets:
-                    new_sets[new_M] += new_freq
-                else:
-                    new_sets[new_M] = new_freq
+            # Store all data needed for processing candidates
+            all_data.append((M, freq, Q, residuals, M_comp))
+        
+        # Second pass: Process all candidate features in a single batch for each feature set
+        # This replaces the million+ individual calls to _batch_process_candidates
+        for M, freq, Q, residuals, M_comp in all_data:
+            if len(M_comp) == 0:
+                continue
+            
+            # Create consistent random seed from feature set and base seed
+            set_hash = hash(M) if M else 0
+            if self.random_state is not None:
+                seed = self.random_state + set_hash % 10000
+                generator = np.random.RandomState(seed)
+            else:
+                generator = np.random.RandomState()
+            
+            # Determine number of candidates
+            n_candidates = min(self.m, len(M_comp))
+            if n_candidates == 0:
+                continue
+            
+            # Generate random samples all at once (instead of one at a time)
+            all_candidates = set()
+            all_samples = []
+            
+            for i in range(freq):
+                sample_indices = generator.choice(len(M_comp), size=n_candidates, replace=False)
+                sample = M_comp[sample_indices]
+                all_samples.append(sample)
+                all_candidates.update(sample)
+            
+            # Convert to array for vectorized operations
+            all_candidates = np.array(list(all_candidates))
+            
+            # Get candidate features
+            X_candidates = X_centered[:, all_candidates]
+            
+            # Fast correlation computation
+            correlations = np.abs(residuals @ X_candidates)
+            
+            # Vectorized computation of selection criteria
+            if Q.shape[1] == 0:
+                # First feature - simple correlation/norm
+                fs_values = correlations / feature_norms[all_candidates]
+            else:
+                # Orthogonalization for subsequent features
+                proj_matrix = Q.T @ X_candidates
+                x_orth = X_candidates - Q @ proj_matrix
+                orth_norms = np.linalg.norm(x_orth, axis=0)
                 
-                # Pre-compute QR for next iteration with frequency tracking
+                # Handle numerical issues
+                fs_values = np.full(len(all_candidates), -np.inf)
+                valid_mask = orth_norms > 1e-10
+                fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
+            
+            # Map features to their selection values for quick lookup
+            criteria_lookup = {feat: val for feat, val in zip(all_candidates, fs_values)}
+            
+            # Process all samples for this feature set at once
+            for sample in all_samples:
+                # Get selection values for this sample
+                sample_values = np.array([criteria_lookup[feat] for feat in sample])
+                
+                # Select best feature
+                best_idx = np.argmax(sample_values)
+                best_feature = sample[best_idx]
+                
+                # Create new feature set
+                new_M = tuple(sorted(list(M) + [best_feature]))
+                
+                # Update new feature sets
+                if new_M in new_sets:
+                    new_sets[new_M] += 1
+                else:
+                    new_sets[new_M] = 1
+                    
+                # Pre-compute QR for next iteration (optional optimization)
                 if new_M in qr_cache:
                     # Update frequency if already in cache
                     Q_new, R_new, exist_freq = qr_cache[new_M]
-                    qr_cache[new_M] = (Q_new, R_new, exist_freq + new_freq)
+                    qr_cache[new_M] = (Q_new, R_new, exist_freq + 1)
                 else:
-                    # Find the new feature (the one not in M)
-                    new_feature = next(f for f in new_M if f not in M)
-                    
-                    # Use optimized rank-one update
-                    Q_new, R_new = self._fast_qr_update(
-                        Q, R, X_centered[:, new_feature])
-                    qr_cache[new_M] = (Q_new, R_new, new_freq)
+                    # Use optimized QR update (only if beneficial for performance)
+                    if len(M) > 100:  # Only for large feature sets where QR update is faster than recomputation
+                        # Find the new feature (the one not in M)
+                        new_feature = best_feature
+                        
+                        # Fast rank-one update for QR
+                        x_new = X_centered[:, new_feature]
+                        r_k = Q.T @ x_new
+                        q_k_plus_1 = x_new - Q @ r_k
+                        q_k_plus_1_norm = np.linalg.norm(q_k_plus_1)
+                        
+                        if q_k_plus_1_norm > 1e-10:
+                            q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
+                            
+                            # Extend Q and R
+                            Q_new = np.column_stack([Q, q_k_plus_1])
+                            
+                            R_new = np.zeros((Q_new.shape[1], Q_new.shape[1]))
+                            R_new[:R.shape[0], :R.shape[1]] = R
+                            R_new[:R.shape[0], -1] = r_k
+                            R_new[-1, -1] = q_k_plus_1_norm
+                            
+                            qr_cache[new_M] = (Q_new, R_new, 1)
         
         return coef_k, new_sets
     
     def _fit_specialized_forward_selection(self, X, y):
         """
-        Specialized implementation for m=p, B=1 case (standard forward selection).
-        Highly optimized with vectorized operations.
+        Highly optimized implementation for forward selection (m=p, B=1).
+        Uses vectorized operations and true rank-one QR updates.
         """
         n_samples, n_features = X.shape
         
-        # Center data
+        # Center data (one-time operation)
         X_mean = X.mean(axis=0)
         X_centered = X - X_mean
         y_mean = y.mean()
         y_centered = y - y_mean
         
-        # Initialize storage
-        self.coef_ = []
-        self.intercept_ = []
+        # Initialize storage for models
+        self.coef_ = [np.zeros(n_features)]
+        self.intercept_ = [y_mean]
         
-        # Pre-compute feature norms using vectorized operations
+        # Initialize tracking
+        selected = []
+        unselected = np.arange(n_features)
+        
+        # Pre-allocate matrices for QR factorization
+        # Allocate the maximum size we might need
+        Q_full = np.zeros((n_samples, self.k_max))
+        R_full = np.zeros((self.k_max, self.k_max))
+        
+        # Keep track of actual size of QR factorization
+        k_current = 0
+        
+        # Initial residuals = y_centered (since no features are selected yet)
+        residuals = y_centered.copy()
+        
+        # Pre-compute feature norms (constant across iterations)
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
         feature_norms[feature_norms < 1e-10] = 1.0
         
-        # Initial empty model
-        self.coef_.append(np.zeros(n_features))
-        self.intercept_.append(y_mean)
-        
-        # Initialize QR factorization
-        Q = np.empty((n_samples, 0))
-        R = np.empty((0, 0))
-        
-        # Initial residuals
-        residuals = y_centered.copy()
-        
-        # Track selected features
-        selected = []
-        unselected_mask = np.ones(n_features, dtype=bool)
-        
-        # Feature selection loop - vectorized operations
+        # Main loop - select one feature at a time
         for k in range(1, self.k_max + 1):
-            # Check if any features remain
-            if not np.any(unselected_mask):
-                # No features left, copy previous model
-                self.coef_.append(self.coef_[-1].copy())
-                self.intercept_.append(self.intercept_[-1])
-                continue
+            if len(unselected) == 0:
+                # No features left, just break out of the loop
+                break
             
-            # Get unselected feature indices - fast vectorized operation
-            remaining = np.nonzero(unselected_mask)[0]
-            
-            # Evaluate all remaining features at once
-            X_candidates = X_centered[:, remaining]
-            
-            # Fast vectorized correlation computation
-            correlations = np.abs(residuals @ X_candidates)
-            
-            # Fast, vectorized selection criteria computation
-            if Q.shape[1] == 0:
-                # First feature - vectorized normalization
-                fs_values = correlations / feature_norms[remaining]
+            # Compute selection criterion efficiently
+            if k == 1:
+                # First feature - just use |X^T y| / ||X||
+                X_unsel = X_centered[:, unselected]
+                correlations = np.abs(X_unsel.T @ y_centered)
+                sel_norms = feature_norms[unselected]
+                selection_values = correlations / sel_norms
             else:
-                # Fast orthogonalization
-                proj_matrix = Q.T @ X_candidates
-                x_orth = X_candidates - Q @ proj_matrix
-                orth_norms = np.linalg.norm(x_orth, axis=0)
+                # For subsequent features
+                # Extract unselected features
+                X_unsel = X_centered[:, unselected]
                 
-                # Vectorized handling of numerical issues
-                fs_values = np.full(len(remaining), -np.inf)
-                valid_mask = orth_norms > 1e-10
-                fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
+                # Current Q matrix
+                Q = Q_full[:, :k_current]
+                
+                # 1. Compute correlations: |X_unsel^T residuals|
+                correlations = np.abs(X_unsel.T @ residuals)
+                
+                # 2. Compute orthogonal components efficiently
+                # X_orth = X_unsel - Q(Q^T X_unsel)
+                QTX = Q.T @ X_unsel
+                X_orth = X_unsel - Q @ QTX
+                
+                # Compute norms of orthogonal components
+                orth_norms = np.sqrt(np.sum(X_orth**2, axis=0))
+                
+                # Handle numerical stability
+                mask = orth_norms < 1e-10
+                orth_norms[mask] = np.inf  # Avoid division by zero
+                
+                # Compute selection values
+                selection_values = correlations / orth_norms
             
-            # Fast selection of best feature
-            best_idx = np.argmax(fs_values)
-            best_feature = remaining[best_idx]
+            # Find best feature
+            best_idx = np.argmax(selection_values)
+            best_feature = unselected[best_idx]
             
             # Update tracking
             selected.append(best_feature)
-            unselected_mask[best_feature] = False
+            unselected = np.delete(unselected, best_idx)
             
-            # Update QR factorization with optimized rank-one update
-            x_new = X_centered[:, best_feature]
-            Q, R = self._fast_qr_update(Q, R, x_new)
+            # Get the selected feature vector
+            x_best = X_centered[:, best_feature]
             
-            # Fast coefficient computation using triangular solve
-            beta = linalg.solve_triangular(R, Q.T @ y_centered, 
-                                         lower=False, check_finite=False)
+            # Update QR factorization with rank-one update
+            if k_current == 0:
+                # First feature - just normalize and store
+                norm_x = np.linalg.norm(x_best)
+                Q_full[:, 0] = x_best / norm_x
+                R_full[0, 0] = norm_x
+                k_current = 1
+            else:
+                # True rank-one update
+                
+                # Current Q matrix
+                Q = Q_full[:, :k_current]
+                
+                # 1. Project x_best onto current Q
+                QTx = Q.T @ x_best
+                
+                # 2. Compute orthogonal component
+                x_orth = x_best - Q @ QTx
+                orth_norm = np.linalg.norm(x_orth)
+                
+                # 3. Update Q and R if orthogonal component is significant
+                if orth_norm > 1e-10:
+                    # Normalize orthogonal component
+                    Q_full[:, k_current] = x_orth / orth_norm
+                    
+                    # Update R
+                    R_full[:k_current, k_current] = QTx
+                    R_full[k_current, k_current] = orth_norm
+                    
+                    # Increment the size counter
+                    k_current += 1
             
-            # Update model - vectorized coefficient assignment
+            # Update residuals: r = y - Q(Q^T y)
+            Q = Q_full[:, :k_current]
+            QTy = Q.T @ y_centered
+            residuals = y_centered - Q @ QTy
+            
+            # Compute coefficients using R
+            R = R_full[:k_current, :k_current]
+            beta = linalg.solve_triangular(R, QTy, lower=False, check_finite=False)
+            
+            # Create coefficient vector
             coef_k = np.zeros(n_features)
             coef_k[selected] = beta
+            
+            # Store model
             self.coef_.append(coef_k)
             self.intercept_.append(y_mean)
-            
-            # Update residuals for next iteration
-            residuals = y_centered - Q @ (Q.T @ y_centered)
         
         return self
     

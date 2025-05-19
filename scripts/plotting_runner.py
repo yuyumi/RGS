@@ -63,7 +63,7 @@ def create_plots_for_result(
             # 'insample_sigma': (plot_insample_by_sigma, {}),
             # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
             'mse_pve': (plot_mse_by_variance_explained, {}),
-            'insample_pve': (plot_insample_by_variance_explained, {}),
+            # 'insample_pve': (plot_insample_by_variance_explained, {}),
             'outsample_pve': (plot_outsample_mse_by_variance_explained, {}),
             'coef_recovery_pve': (plot_coef_recovery_by_variance_explained, {}),
             'rte_pve': (plot_rte_by_variance_explained, {})
@@ -99,6 +99,7 @@ def create_plots_for_result(
             'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
             'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
             'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True}),
+            'rie_pve': (barplot_rie_by_variance_explained, {}),
             'rte_pve': (barplot_rte_by_variance_explained, {'log_scale': False})
         }
         

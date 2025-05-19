@@ -9,23 +9,27 @@ from matplotlib.ticker import FuncFormatter
 
 __all__ = [
     'plot_mse_by_sigma',
-    'plot_insample_by_sigma',
+    # 'plot_insample_by_sigma', # Commented out
     'plot_outsample_mse_by_sigma',
     'plot_mse_by_variance_explained',
-    'plot_insample_by_variance_explained',
+    # 'plot_insample_by_variance_explained', # Commented out
     'plot_outsample_mse_by_variance_explained',
     'plot_coef_recovery_by_variance_explained',
     'plot_rte_by_variance_explained',
+    'plot_rie_by_sigma',  # New function
+    'plot_rie_by_variance_explained',  # New function
     # New bar plot functions
     'barplot_metric_by_sigma',
     'barplot_metric_by_variance_explained',
     'barplot_mse_by_sigma',
-    'barplot_insample_by_sigma',
+    # 'barplot_insample_by_sigma', # Commented out
     'barplot_outsample_mse_by_sigma',
     'barplot_mse_by_variance_explained',
-    'barplot_insample_by_variance_explained',
+    'barplot_insample_by_variance_explained', # Commented out
     'barplot_outsample_mse_by_variance_explained',
     'barplot_rte_by_variance_explained',
+    'barplot_rie_by_sigma',  # New function
+    'barplot_rie_by_variance_explained',  # New function
     'plot_mse_vs_df_by_k'
 ]
 
@@ -47,12 +51,13 @@ class PlottingConfig:
     
     METRIC_LABELS = {
         'mse': 'Mean Square Error',
-        'insample': 'In-sample Error',
+        'insample': 'In-sample Error',  # Kept for legacy compatibility
         'outsample_mse': 'Out-of-sample Mean Square Error',
         'df': 'Degrees of Freedom',
         'coef_recovery': 'Coefficient Recovery Error',
         'support_recovery': 'Support Recovery Accuracy',
-        'rte': 'Relative Test Error'
+        'rte': 'Relative Test Error',
+        'rie': 'Relative In-sample Error'  # Added for RIE
     }
     
     # Methods: Lasso, Ridge, Elastic Net, Greedy Selection, Randomized Greedy Selection
@@ -196,24 +201,34 @@ def plot_metric_by_sigma(
     """Plot metric vs sigma with error bars."""
     try:
         df = pd.read_csv(results_path)
-        available_methods = get_available_methods(df, metric)
         
-        if not available_methods:
-            print(f"No data found for metric '{metric}' in {Path(results_path).name}")
-            return None
-            
-        # Check if there's any valid data for the available methods
-        valid_data = False
-        for method in available_methods:
-            metric_col = f'{metric}_{method}'
-            if not df[metric_col].isna().all():
-                valid_data = True
-                break
-                
-        if not valid_data:
-            print(f"All data for metric '{metric}' is NaN in {Path(results_path).name}")
-            return None
-            
+        # For RIE, we need to calculate it from insample and sigma
+        if metric == 'rie':
+            # Calculate RIE for each method that has insample data
+            for method in PlottingConfig.METHODS:
+                insample_col = f'insample_{method}'
+                if insample_col in df.columns and not df[insample_col].isna().all():
+                    # Calculate RIE as (insample/sigma^2)+1
+                    df[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
+
+        else:
+            available_methods = get_available_methods(df, metric)
+        
+            if not available_methods:
+                print(f"No data found for metric '{metric}' in {Path(results_path).name}")
+                return None    
+            # Check if there's any valid data for the available methods
+            valid_data = False
+            for method in available_methods:
+                metric_col = f'{metric}_{method}'
+                if not df[metric_col].isna().all():
+                    valid_data = True
+                    break
+                    
+            if not valid_data:
+                print(f"All data for metric '{metric}' is NaN in {Path(results_path).name}")
+                return None
+
         fig, ax = create_figure()
         setup_plot_style()
         
@@ -312,6 +327,15 @@ def plot_metric_by_variance_explained(
         
         fig, ax = create_figure()
         setup_plot_style()
+
+        # For RIE, we need to calculate it from insample and sigma
+        if metric == 'rie':
+            # Calculate RIE for each method that has insample data
+            for method in PlottingConfig.METHODS:
+                insample_col = f'insample_{method}'
+                if insample_col in df.columns and not df[insample_col].isna().all():
+                    # Calculate RIE as (insample/sigma^2)+1
+                    df[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
         
         available_methods = get_available_methods(df, metric)
         if not available_methods:
@@ -386,7 +410,7 @@ def plot_metric_by_variance_explained(
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte'] else 'upper left')
+        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte', 'rie'] else 'upper left')
         ax.grid(True, alpha=0.3)
         
         if save_path:
@@ -742,6 +766,15 @@ def barplot_metric_by_variance_explained(
     try:
         df = pd.read_csv(results_path)
         df['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
+
+        # For RIE, we need to calculate it from insample and sigma
+        if metric == 'rie':
+            # Calculate RIE for each method that has insample data
+            for method in PlottingConfig.METHODS:
+                insample_col = f'insample_{method}'
+                if insample_col in df.columns and not df[insample_col].isna().all():
+                    # Calculate RIE as (insample/sigma^2)+1
+                    df[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
         
         fig, ax = create_figure()
         setup_plot_style()
@@ -828,7 +861,7 @@ def barplot_metric_by_variance_explained(
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse'] else 'upper left')
+        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
         ax.grid(True, axis='y', alpha=0.3)
 
         if metric == 'rte' and not log_scale:
@@ -873,6 +906,10 @@ def plot_insample_by_sigma(*args, **kwargs):
     kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_sigma(*args, metric='insample', **kwargs)
 
+def plot_rie_by_sigma(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
+    return plot_metric_by_sigma(*args, metric='rie', **kwargs)
+
 def plot_outsample_mse_by_sigma(*args, **kwargs):
     kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
@@ -884,6 +921,10 @@ def plot_mse_by_variance_explained(*args, **kwargs):
 def plot_insample_by_variance_explained(*args, **kwargs):
     kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
     return plot_metric_by_variance_explained(*args, metric='insample', **kwargs)
+
+def plot_rie_by_variance_explained(*args, **kwargs):
+    kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
+    return plot_metric_by_variance_explained(*args, metric='rie', **kwargs)
 
 def plot_outsample_mse_by_variance_explained(*args, **kwargs):
     kwargs.setdefault('log_scale', False)  # Set default to False for linear scale
@@ -904,6 +945,9 @@ def barplot_mse_by_sigma(*args, **kwargs):
 def barplot_insample_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='insample', **kwargs)
 
+def barplot_rie_by_sigma(*args, **kwargs):
+    return barplot_metric_by_sigma(*args, metric='rie', **kwargs)
+
 def barplot_outsample_mse_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
 
@@ -912,6 +956,9 @@ def barplot_mse_by_variance_explained(*args, **kwargs):
 
 def barplot_insample_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='insample', **kwargs)
+
+def barplot_rie_by_variance_explained(*args, **kwargs):
+    return barplot_metric_by_variance_explained(*args, metric='rie', **kwargs)
 
 def barplot_outsample_mse_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='outsample_mse', **kwargs)

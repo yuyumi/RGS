@@ -12,9 +12,9 @@
         }
     },
     "data": {
-        "n_predictors": 100,
-        "n_train": 1100,
-        "signal_proportion": 0.1,
+        "n_predictors": 10,
+        "n_train": 110,
+        "signal_proportion": 0.5,
         "test_size": 0.091,
         "covariance_type": "banded", 
         "generator_type": "exact",
@@ -26,17 +26,14 @@
             "within_correlation": 0.25
         },
         "banded_params": {
-            "gamma": 0.5
+            "gamma": 0.35
         }
     },
     "model": {
-        "k_max": 20,
+        "k_max": 10,
         "m_grid": {
-            "type": "geometric",
-            "params": {
-                "base": 1.5,
-                "num_points": 10
-            }
+            "type": "list",
+            "values": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         },
         "rgscv": {
             "n_estimators": 500,
@@ -45,13 +42,13 @@
         },
         "bagged_gs": {
             "n_estimators": 500,
-            "cv": 5
+            "cv": 10
         },
         "smeared_gs": {
             "n_estimators": 500,
-            "cv": 5,
+            "cv": 10,
             "param_grid": {
-                "noise_scale": [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
+                "noise_scale": [0.1, 1.0, 5.0]
             }
         },
         "baseline": {
