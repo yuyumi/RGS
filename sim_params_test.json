@@ -3,12 +3,8 @@
         "n_sim": 5,
         "base_seed": 42,
         "sigma": {
-            "type": "pve",
-            "params": {
-                "num_points": 1,
-                "min_pve": 0.3,
-                "max_pve": 0.3
-            }
+            "type": "list",
+            "values": [0.05, 0.09, 0.14, 0.25, 0.42, 0.71, 1.22, 2.07, 3.52, 6.00]
         }
     },
     "data": {

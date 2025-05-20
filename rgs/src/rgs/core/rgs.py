@@ -175,30 +175,54 @@ class RGS(BaseEstimator, RegressorMixin):
         else:
             generator = np.random.RandomState()
         
-        # Dictionary-based implementation
-        if not feature_freqs:
-            return feature_freqs
+        # Handle based on the type of feature_freqs
+        if isinstance(feature_freqs, np.ndarray):
+            # Bit-encoding implementation (array case)
+            # If the array is all zeros (no features), return the array as is
+            if not np.any(feature_freqs):
+                return feature_freqs
+                
+            # Extract non-zero indices and their frequencies for resampling
+            non_zero_indices = np.nonzero(feature_freqs)[0]
+            freqs = feature_freqs[non_zero_indices]
+            total = np.sum(freqs)
             
-        # Extract keys and frequencies for vectorized operations
-        features = list(feature_freqs.keys())
-        freqs = np.array(list(feature_freqs.values()), dtype=np.float64)
-        total = np.sum(freqs)
-        
-        if total == 0:
-            return {}
-        
-        # Fast proportion calculation
-        proportions = freqs / total
-        
-        # Fast multinomial sampling
-        new_freqs = generator.multinomial(self.n_estimators, proportions)
-        
-        # Efficient dictionary creation
-        # Only include non-zero frequencies
-        non_zero_idx = np.nonzero(new_freqs)[0]
-        result = {features[i]: new_freqs[i] for i in non_zero_idx}
-        
-        return result
+            if total == 0:
+                return np.zeros_like(feature_freqs)
+                
+            # Proportions and resampling
+            proportions = freqs / total
+            new_freqs = generator.multinomial(self.n_estimators, proportions)
+            
+            # Update array with new frequencies
+            result = np.zeros_like(feature_freqs)
+            result[non_zero_indices] = new_freqs
+            return result
+        else:
+            # Dictionary-based implementation
+            if not feature_freqs:
+                return feature_freqs
+                
+            # Extract keys and frequencies for vectorized operations
+            features = list(feature_freqs.keys())
+            freqs = np.array(list(feature_freqs.values()), dtype=np.float64)
+            total = np.sum(freqs)
+            
+            if total == 0:
+                return {}
+            
+            # Fast proportion calculation
+            proportions = freqs / total
+            
+            # Fast multinomial sampling
+            new_freqs = generator.multinomial(self.n_estimators, proportions)
+            
+            # Efficient dictionary creation
+            # Only include non-zero frequencies
+            non_zero_idx = np.nonzero(new_freqs)[0]
+            result = {features[i]: new_freqs[i] for i in non_zero_idx}
+            
+            return result
     
     def _batch_process_candidates(self, X_centered, residuals, Q, M, frequency, feature_norms):
         """

@@ -95,7 +95,8 @@ def get_m_grid(grid_params, n_predictors):
         return [int(2 + (n_predictors-2) * (base**x - 1)/(base**(num_points-1) - 1)) 
                 for x in range(num_points)]
     elif grid_params['type'] == 'list':
-        return grid_params['values']
+        # Simply return the values as a Python list, don't convert to np.array
+        return [int(x) for x in grid_params['values']]
     else:
         raise ValueError(f"Unknown m_grid type: {grid_params['type']}")
     
@@ -865,6 +866,8 @@ def run_one_dgp_iter(
         params['model']['m_grid'],
         params['data']['n_predictors']
     )
+    print(f"m_grid type: {type(m_grid)}")
+    print(f"m_grid content: {m_grid}")
 
     # Fit RGSCV
     start_time = time.time()
