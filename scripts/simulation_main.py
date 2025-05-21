@@ -4,7 +4,8 @@ import time
 import json
 from pathlib import Path
 from tqdm import tqdm
-from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
+from sklearn.linear_model import Lasso, Ridge, ElasticNet, LassoCV, RidgeCV, ElasticNetCV
+from sklearn.metrics import make_scorer
 from sklearn.metrics import mean_squared_error
 from sklearn.ensemble import BaggingRegressor
 from sklearn.linear_model import LinearRegression
@@ -526,36 +527,83 @@ def run_one_dgp_iter(
         'sigma': sigma
     }
     
-    # Get generator-specific parameters if needed
+    # Check validation approach from params
+    use_validation_set = params.get('simulation', {}).get('use_validation_set', False)
+    
+    # Get dataset sizes from params
+    n_train = params['data']['n_train']
+    n_test = params['data'].get('n_test', n_train)  # Default to n_train if not specified
+    n_val = params['data'].get('n_val', n_train)    # Default to n_train if not specified
+    
+    # Generate training data of size n_train
+    X_train_base = np.zeros((n_train, X.shape[1]))  # Create base matrix of right size
+    # Either copy values from X or create new covariance structure
+    X_train_base[:] = X[:n_train] if n_train <= X.shape[0] else X  # Use as much of X as possible
+    
     if params['data']['generator_type'] in ['nonlinear', 'inexact']:
         generator_params = params['data'].get('generator_params', {})
-        eta = generator_params.get('eta', 0.5)  # default to 0.5 if not specified
-        X, y, y_true, beta_true, p, sigma = generator(
-            X, 
+        eta = generator_params.get('eta', 0.5)
+        X_train, y_train, y_true_train, beta_true, p, sigma = generator(
+            X_train_base, 
             params['data']['signal_proportion'], 
             sigma,
             seed=seed+sim_num,
             eta=eta
         )
     else:
-        # Original code for other generators
-        X, y, y_true, beta_true, p, sigma = generator(
-            X, 
+        X_train, y_train, y_true_train, beta_true, p, sigma = generator(
+            X_train_base, 
             params['data']['signal_proportion'], 
             sigma, 
             seed=seed+sim_num
         )
     
-    X_train, X_test, y_train, y_test, y_true_train, y_true_test = train_test_split(
-        X, 
-        y,
-        y_true,
-        test_size=params['data']['test_size'],
-        random_state=seed+sim_num,  # Set seed for reproducibility
-    )
-
-    # Number of training samples for df calculation
-    n_train = y_train.shape[0]
+    # Generate test data of size n_test
+    X_test_base = np.zeros((n_test, X.shape[1]))
+    X_test_base[:] = X[:n_test] if n_test <= X.shape[0] else X
+    
+    test_seed = seed + sim_num + 200000
+    if params['data']['generator_type'] in ['nonlinear', 'inexact']:
+        X_test, y_test, y_true_test, _, _, _ = generator(
+            X_test_base,
+            params['data']['signal_proportion'],
+            sigma,
+            seed=test_seed,
+            eta=eta
+        )
+    else:
+        X_test, y_test, y_true_test, _, _, _ = generator(
+            X_test_base,
+            params['data']['signal_proportion'],
+            sigma,
+            seed=test_seed
+        )
+    
+    # Generate validation data if using validation approach
+    X_val = None
+    y_val = None
+    y_true_val = None
+    
+    if use_validation_set:
+        X_val_base = np.zeros((n_val, X.shape[1]))
+        X_val_base[:] = X[:n_val] if n_val <= X.shape[0] else X
+        
+        validation_seed = seed + sim_num + 100000
+        if params['data']['generator_type'] in ['nonlinear', 'inexact']:
+            X_val, y_val, y_true_val, _, _, _ = generator(
+                X_val_base,
+                params['data']['signal_proportion'],
+                sigma,
+                seed=validation_seed,
+                eta=eta
+            )
+        else:
+            X_val, y_val, y_true_val, _, _, _ = generator(
+                X_val_base,
+                params['data']['signal_proportion'],
+                sigma,
+                seed=validation_seed
+            )
     
     # Initialize result dictionary
     result = {
@@ -563,13 +611,60 @@ def run_one_dgp_iter(
         'sigma': sigma
     }
     
-    # Fit baseline models with specified CV
-    cv = params['model']['baseline']['cv']
+    
+    if use_validation_set:
+        # For baseline models: we'll manually do model selection
+        def select_model_by_validation(models, params_list):
+            """Select best model based on validation performance."""
+            val_scores = []
+            for model in models:
+                model.fit(X_train, y_train)
+                val_pred = model.predict(X_val)
+                val_score = mean_squared_error(y_val, val_pred)
+                val_scores.append(val_score)
+            best_idx = np.argmin(val_scores)
+            best_model = models[best_idx]
+            best_params = params_list[best_idx]
+            return best_model, best_params
+
+        
+        # Create validation scorer that follows the same pattern as create_mse_scorer
+        def create_validation_scorer(X_val, y_val):
+            def make_k_scorer(k):
+                def validation_score(y_true, y_pred):
+                    # Note: y_true is ignored, we always use y_val
+                    # This matches the signature expected by make_scorer
+                    return -mean_squared_error(y_val, y_pred)
+                
+                # Create sklearn-compatible scorer
+                return make_scorer(validation_score)
+            
+            return make_k_scorer
+        
+        # Set validation options
+        cv_value = 1
+        make_k_scorer = create_validation_scorer(X_val, y_val)
+    else:
+        # Original CV approach
+        cv_value = params['model']['baseline']['cv']
+        make_k_scorer = create_mse_scorer(
+            sigma=sigma,
+            n=params['data']['n_train'],
+            p=params['data']['n_predictors']
+        )
+    
+    # Fit baseline models
+    n_train = y_train.shape[0]
     
     # Fit and evaluate Lasso
     start_time = time.time()
-    lasso = LassoCV(cv=cv, random_state=seed+sim_num)
-    lasso.fit(X_train, y_train)
+    if use_validation_set:
+        alphas = np.logspace(-10, 1, 100)
+        lasso_models = [Lasso(alpha=alpha, random_state=seed+sim_num) for alpha in alphas]
+        lasso, best_alpha = select_model_by_validation(lasso_models, alphas)
+    else:
+        lasso = LassoCV(cv=cv_value, random_state=seed+sim_num)
+        lasso.fit(X_train, y_train)
     lasso_time = time.time() - start_time
     timing_results['time_lasso'] = lasso_time
     
@@ -608,8 +703,13 @@ def run_one_dgp_iter(
     
     # Fit and evaluate Ridge
     start_time = time.time()
-    ridge = RidgeCV(cv=cv)
-    ridge.fit(X_train, y_train)
+    if use_validation_set:
+        alphas = np.logspace(-10, 10, 100)
+        ridge_models = [Ridge(alpha=alpha) for alpha in alphas]
+        ridge, best_alpha = select_model_by_validation(ridge_models, alphas)
+    else:
+        ridge = RidgeCV(cv=cv_value)
+        ridge.fit(X_train, y_train)
     ridge_time = time.time() - start_time
     timing_results['time_ridge'] = ridge_time
     
@@ -647,8 +747,15 @@ def run_one_dgp_iter(
     # Fit and evaluate Elastic Net
     l1_ratios = [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]
     start_time = time.time()
-    elastic = ElasticNetCV(l1_ratio=l1_ratios, cv=cv, random_state=seed+sim_num)
-    elastic.fit(X_train, y_train)
+    if use_validation_set:
+        alphas = np.logspace(-10, 1, 20)
+        elastic_params = [(alpha, l1) for alpha in alphas for l1 in l1_ratios]
+        elastic_models = [ElasticNet(alpha=alpha, l1_ratio=l1, random_state=seed+sim_num) 
+                         for alpha, l1 in elastic_params]
+        elastic, best_elastic_params = select_model_by_validation(elastic_models, elastic_params)
+    else:
+        elastic = ElasticNetCV(l1_ratio=l1_ratios, cv=cv_value, random_state=seed+sim_num)
+        elastic.fit(X_train, y_train)
     elastic_time = time.time() - start_time
     timing_results['time_elastic'] = elastic_time
     
@@ -684,21 +791,14 @@ def run_one_dgp_iter(
         'f_score_elastic': f_score_elastic
     })
 
-    # Create penalized scorer factory with true sigma^2
-    make_k_scorer = create_mse_scorer(
-        sigma=sigma,
-        n=params['data']['n_train'],
-        p=params['data']['n_predictors']
-    )
-
     # Fit and evaluate BaggedGS
     start_time = time.time()
     bagged_gs = BaggedGS(
         k_max=params['model']['k_max'],
         n_estimators=params['model']['bagged_gs']['n_estimators'],
         random_state=seed+sim_num,
-        cv=params['model']['bagged_gs']['cv'],
-        scoring=make_k_scorer  # Use AIC scorer
+        cv=cv_value,
+        scoring=make_k_scorer  # Use MSE scorer
     )
     bagged_gs.fit(X_train, y_train)
     bagged_gs_time = time.time() - start_time
@@ -782,8 +882,8 @@ def run_one_dgp_iter(
         n_estimators=params['model']['smeared_gs']['n_estimators'],
         noise_scale=params['model']['smeared_gs']['param_grid']['noise_scale'],
         random_state=seed+sim_num,
-        cv=params['model']['smeared_gs']['cv'],
-        scoring=make_k_scorer  # Use AIC scorer
+        cv=cv_value,
+        scoring=make_k_scorer  # Use MSE scorer
     )
     smeared_gs.fit(X_train, y_train)
     smeared_gs_time = time.time() - start_time
@@ -877,8 +977,8 @@ def run_one_dgp_iter(
         n_estimators=params['model']['rgscv']['n_estimators'],
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
         random_state=seed+sim_num,
-        cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer  # Use AIC scorer
+        cv=cv_value,
+        scoring=make_k_scorer  # Use MSE scorer
     )
     rgscv.fit(X_train, y_train)
     rgscv_time = time.time() - start_time
@@ -960,8 +1060,8 @@ def run_one_dgp_iter(
         n_estimators=1,
         n_resample_iter=0,
         random_state=seed+sim_num,
-        cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer  # Use AIC scorer
+        cv=cv_value,
+        scoring=make_k_scorer  # Use MSE scorer
     )
     gscv.fit(X_train, y_train)
     original_gs_time = time.time() - start_time
@@ -1033,76 +1133,76 @@ def run_one_dgp_iter(
     for k, df_value in df_by_k_original_gs.items():
         result[f'df_by_k_original_gs_{k}'] = df_value
 
-    # Baseline RGS and GS methods
-    true_k = int(params['data']['signal_proportion']*params['data']['n_predictors'])
-    start_time = time.time()
-    base_rgscv = RGSCV(
-        k_max=true_k,
-        m_grid=m_grid,
-        n_estimators=params['model']['rgscv']['n_estimators'],
-        n_resample_iter=params['model']['rgscv']['n_resample_iter'],
-        k_grid=[true_k],
-        random_state=seed+sim_num,
-        cv=params['model']['rgscv']['cv'],
-        scoring=make_k_scorer  # Use AIC scorer
-    )
-    base_rgscv.fit(X_train, y_train)
-    base_rgs_time = time.time() - start_time
-    timing_results['time_base_rgs'] = base_rgs_time
+    # # Baseline RGS and GS methods
+    # true_k = int(params['data']['signal_proportion']*params['data']['n_predictors'])
+    # start_time = time.time()
+    # base_rgscv = RGSCV(
+    #     k_max=true_k,
+    #     m_grid=m_grid,
+    #     n_estimators=params['model']['rgscv']['n_estimators'],
+    #     n_resample_iter=params['model']['rgscv']['n_resample_iter'],
+    #     k_grid=[true_k],
+    #     random_state=seed+sim_num,
+    #     cv=params['model']['rgscv']['cv'],
+    #     scoring=make_k_scorer  # Use MSE scorer
+    # )
+    # base_rgscv.fit(X_train, y_train)
+    # base_rgs_time = time.time() - start_time
+    # timing_results['time_base_rgs'] = base_rgs_time
     
-    # Get predictions using best parameters
-    y_pred_base_rgs = base_rgscv.predict(X_train)
-    y_test_base_rgs = base_rgscv.predict(X_test)
+    # # Get predictions using best parameters
+    # y_pred_base_rgs = base_rgscv.predict(X_train)
+    # y_test_base_rgs = base_rgscv.predict(X_test)
     
-    mse_base_rgs = mean_squared_error(y_train, y_pred_base_rgs)
-    insample_base_rgs = mean_squared_error(y_true_train, y_pred_base_rgs)
-    error_diff_base_rgs = insample_base_rgs - mse_base_rgs + sigma**2
-    df_base_rgs = (n_train / (2 * sigma**2)) * error_diff_base_rgs
+    # mse_base_rgs = mean_squared_error(y_train, y_pred_base_rgs)
+    # insample_base_rgs = mean_squared_error(y_true_train, y_pred_base_rgs)
+    # error_diff_base_rgs = insample_base_rgs - mse_base_rgs + sigma**2
+    # df_base_rgs = (n_train / (2 * sigma**2)) * error_diff_base_rgs
     
-    result.update({
-        'best_m_base': base_rgscv.m_,
-        'insample_base_rgs': insample_base_rgs,
-        'mse_base_rgs': mse_base_rgs,
-        'df_base_rgs': df_base_rgs,
-        'coef_recovery_base_rgs': np.mean((base_rgscv.model_.coef_[base_rgscv.k_] - beta_true)**2),
-        'support_recovery_base_rgs': np.mean(
-            (np.abs(base_rgscv.model_.coef_[base_rgscv.k_]) > 1e-10) == (beta_true != 0)
-        ),
-        'outsample_mse_base_rgs': mean_squared_error(y_test, y_test_base_rgs)
-    })
+    # result.update({
+    #     'best_m_base': base_rgscv.m_,
+    #     'insample_base_rgs': insample_base_rgs,
+    #     'mse_base_rgs': mse_base_rgs,
+    #     'df_base_rgs': df_base_rgs,
+    #     'coef_recovery_base_rgs': np.mean((base_rgscv.model_.coef_[base_rgscv.k_] - beta_true)**2),
+    #     'support_recovery_base_rgs': np.mean(
+    #         (np.abs(base_rgscv.model_.coef_[base_rgscv.k_]) > 1e-10) == (beta_true != 0)
+    #     ),
+    #     'outsample_mse_base_rgs': mean_squared_error(y_test, y_test_base_rgs)
+    # })
 
-    # Fit Greedy Selection
-    start_time = time.time()
-    base_gscv = RGS(
-        k_max=true_k,
-        m=params['data']['n_predictors'],
-        n_estimators=1,
-        n_resample_iter=0,
-        random_state=seed+sim_num
-    )
-    base_gscv.fit(X_train, y_train)
-    base_gs_time = time.time() - start_time
-    timing_results['time_base_gs'] = base_gs_time
+    # # Fit Greedy Selection
+    # start_time = time.time()
+    # base_gscv = RGS(
+    #     k_max=true_k,
+    #     m=params['data']['n_predictors'],
+    #     n_estimators=1,
+    #     n_resample_iter=0,
+    #     random_state=seed+sim_num
+    # )
+    # base_gscv.fit(X_train, y_train)
+    # base_gs_time = time.time() - start_time
+    # timing_results['time_base_gs'] = base_gs_time
     
-    # Get predictions using best parameters
-    y_pred_base_gs = base_gscv.predict(X_train)
-    y_test_base_gs = base_gscv.predict(X_test)
+    # # Get predictions using best parameters
+    # y_pred_base_gs = base_gscv.predict(X_train)
+    # y_test_base_gs = base_gscv.predict(X_test)
     
-    mse_base_gs = mean_squared_error(y_train, y_pred_base_gs)
-    insample_base_gs = mean_squared_error(y_true_train, y_pred_base_gs)
-    error_diff_base_gs = insample_base_gs - mse_base_gs + sigma**2
-    df_base_gs = (n_train / (2 * sigma**2)) * error_diff_base_gs
+    # mse_base_gs = mean_squared_error(y_train, y_pred_base_gs)
+    # insample_base_gs = mean_squared_error(y_true_train, y_pred_base_gs)
+    # error_diff_base_gs = insample_base_gs - mse_base_gs + sigma**2
+    # df_base_gs = (n_train / (2 * sigma**2)) * error_diff_base_gs
     
-    result.update({
-        'insample_base_gs': insample_base_gs,
-        'mse_base_gs': mse_base_gs,
-        'df_base_gs': df_base_gs,
-        'coef_recovery_base_gs': np.mean((base_gscv.coef_ - beta_true)**2),
-        'support_recovery_base_gs': np.mean(
-            (np.abs(base_gscv.coef_) > 1e-10) == (beta_true != 0)
-        ),
-        'outsample_mse_base_gs': mean_squared_error(y_test, y_test_base_gs)
-    })
+    # result.update({
+    #     'insample_base_gs': insample_base_gs,
+    #     'mse_base_gs': mse_base_gs,
+    #     'df_base_gs': df_base_gs,
+    #     'coef_recovery_base_gs': np.mean((base_gscv.coef_ - beta_true)**2),
+    #     'support_recovery_base_gs': np.mean(
+    #         (np.abs(base_gscv.coef_) > 1e-10) == (beta_true != 0)
+    #     ),
+    #     'outsample_mse_base_gs': mean_squared_error(y_test, y_test_base_gs)
+    # })
     
     return result, timing_results
     
@@ -1222,8 +1322,8 @@ def main(param_path):
         'time_smeared_gs': ['mean', 'std', 'min', 'max'],
         'time_rgscv': ['mean', 'std', 'min', 'max'],
         'time_original_gs': ['mean', 'std', 'min', 'max'],
-        'time_base_rgs': ['mean', 'std', 'min', 'max'],
-        'time_base_gs': ['mean', 'std', 'min', 'max']
+        # 'time_base_rgs': ['mean', 'std', 'min', 'max'],
+        # 'time_base_gs': ['mean', 'std', 'min', 'max']
     }
     
     timing_summary = timing_df.groupby('sigma').agg(timing_summary_metrics).round(4)
@@ -1233,7 +1333,7 @@ def main(param_path):
         'best_m': ['mean', 'std'],
         'best_k': ['mean', 'std'],
         'best_k_original_gs': ['mean', 'std'],
-        'best_m_base': ['mean', 'std'],
+        # 'best_m_base': ['mean', 'std'],
         'insample_lasso': ['mean', 'std'],
         'mse_lasso': ['mean', 'std'],
         'df_lasso': ['mean', 'std'],  # Degrees of freedom
@@ -1291,19 +1391,19 @@ def main(param_path):
         'support_recovery_original_gs': ['mean', 'std'],
         'outsample_mse_original_gs': ['mean', 'std'],
         'rte_original_gs': ['mean', 'std'],
-        'f_score_original_gs': ['mean', 'std'],
-        'insample_base_rgs': ['mean', 'std'],
-        'mse_base_rgs': ['mean', 'std'],
-        'df_base_rgs': ['mean', 'std'],  # Degrees of freedom
-        'coef_recovery_base_rgs': ['mean', 'std'],
-        'support_recovery_base_rgs': ['mean', 'std'],
-        'outsample_mse_base_rgs': ['mean', 'std'],
-        'insample_base_gs': ['mean', 'std'],
-        'mse_base_gs': ['mean', 'std'],
-        'df_base_gs': ['mean', 'std'],  # Degrees of freedom
-        'coef_recovery_base_gs': ['mean', 'std'],
-        'support_recovery_base_gs': ['mean', 'std'],
-        'outsample_mse_base_gs': ['mean', 'std']
+        'f_score_original_gs': ['mean', 'std']
+        # 'insample_base_rgs': ['mean', 'std'],
+        # 'mse_base_rgs': ['mean', 'std'],
+        # 'df_base_rgs': ['mean', 'std'],  # Degrees of freedom
+        # 'coef_recovery_base_rgs': ['mean', 'std'],
+        # 'support_recovery_base_rgs': ['mean', 'std'],
+        # 'outsample_mse_base_rgs': ['mean', 'std'],
+        # 'insample_base_gs': ['mean', 'std'],
+        # 'mse_base_gs': ['mean', 'std'],
+        # 'df_base_gs': ['mean', 'std'],  # Degrees of freedom
+        # 'coef_recovery_base_gs': ['mean', 'std'],
+        # 'support_recovery_base_gs': ['mean', 'std'],
+        # 'outsample_mse_base_gs': ['mean', 'std']
     }
     
     summary = results_df.groupby('sigma').agg(summary_metrics).round(4)

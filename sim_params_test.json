@@ -1,7 +1,8 @@
 {
     "simulation": {
-        "n_sim": 5,
+        "n_sim": 10,
         "base_seed": 42,
+        "use_validation_set": true,
         "sigma": {
             "type": "list",
             "values": [0.05, 0.09, 0.14, 0.25, 0.42, 0.71, 1.22, 2.07, 3.52, 6.00]
@@ -9,9 +10,10 @@
     },
     "data": {
         "n_predictors": 10,
-        "n_train": 110,
-        "signal_proportion": 0.5,
-        "test_size": 0.091,
+        "n_train": 100,   
+        "n_val": 100,     
+        "n_test": 10,
+        "signal_proportion": 0.5,  
         "covariance_type": "banded", 
         "generator_type": "exact",
         "generator_params": {
@@ -33,22 +35,19 @@
         },
         "rgscv": {
             "n_estimators": 500,
-            "n_resample_iter": 7,
-            "cv": 10
+            "n_resample_iter": 7
         },
         "bagged_gs": {
-            "n_estimators": 500,
-            "cv": 10
+            "n_estimators": 500
         },
         "smeared_gs": {
             "n_estimators": 500,
-            "cv": 10,
             "param_grid": {
                 "noise_scale": [0.1, 1.0, 5.0]
             }
         },
         "baseline": {
-            "cv": 5
+            "cv": 10
         }
     },
     "output": {
