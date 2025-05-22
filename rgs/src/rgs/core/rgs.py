@@ -89,12 +89,13 @@ class RGS(BaseEstimator, RegressorMixin):
         Random number generator seed.
     """
     def __init__(self, k_max, m=None, alpha=None, n_estimators=1000, 
-                 n_resample_iter=1, random_state=None):
+             n_resample_iter=1, method='fs', random_state=None):
         self.k_max = k_max
         self.m = m
         self.alpha = alpha
         self.n_estimators = n_estimators
         self.n_resample_iter = n_resample_iter
+        self.method = method  # New parameter
         self.random_state = random_state
         
     def _validate_inputs(self, X, y):
@@ -104,6 +105,9 @@ class RGS(BaseEstimator, RegressorMixin):
         # Validate feature selection parameters
         assert self.k_max > 0, "k_max must be positive"
         assert self.k_max <= n_features, "k_max cannot exceed number of features"
+        
+        # Validate method parameter
+        assert self.method in ['fs', 'omp'], "method must be 'fs' or 'omp'"
         
         # Set m based on alpha if not provided
         if self.m is None and self.alpha is not None:
@@ -162,6 +166,36 @@ class RGS(BaseEstimator, RegressorMixin):
         R_new[k, k] = q_k_plus_1_norm
         
         return Q_new, R_new
+    
+    def _compute_selection_criterion(self, correlations, norms, method=None):
+        """
+        Compute selection criterion based on method.
+        
+        Parameters
+        ----------
+        correlations : array
+            Absolute correlations |X^T * residual|
+        norms : array  
+            Norms of features (for FS) or orthogonal components (for subsequent features)
+        method : str, optional
+            Method to use. If None, uses self.method
+        
+        Returns
+        -------
+        selection_values : array
+            Selection criterion values
+        """
+        if method is None:
+            method = self.method
+            
+        if method == 'fs':
+            # Forward Selection: normalize by norms
+            return correlations / norms
+        elif method == 'omp':
+            # OMP: use raw correlations
+            return correlations
+        else:
+            raise ValueError(f"Unknown method: {method}")
     
     def _vectorized_bootstrap_resample(self, feature_freqs, bootstrap_iter=0):
         """
@@ -276,7 +310,8 @@ class RGS(BaseEstimator, RegressorMixin):
         # Vectorized computation of selection criteria
         if Q.shape[1] == 0:
             # First feature selection - vectorized normalization
-            fs_values = correlations / feature_norms[unique_candidates]
+            fs_values = self._compute_selection_criterion(
+    correlations, feature_norms[unique_candidates])
         else:
             # Fast orthogonal component computation
             # Compute projection matrix efficiently
@@ -298,7 +333,9 @@ class RGS(BaseEstimator, RegressorMixin):
             # Vectorized handling of numerical issues
             fs_values = np.full(len(unique_candidates), -np.inf)
             valid_mask = orth_norms > 1e-10
-            fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
+            if np.any(valid_mask):
+                fs_values[valid_mask] = self._compute_selection_criterion(
+        correlations[valid_mask], orth_norms[valid_mask])
         
         # Create lookup for fast access
         criteria_lookup = {feat: value for feat, value in zip(unique_candidates, fs_values)}
@@ -420,7 +457,8 @@ class RGS(BaseEstimator, RegressorMixin):
             # Vectorized computation of selection criteria
             if Q.shape[1] == 0:
                 # First feature - simple correlation/norm
-                fs_values = correlations / feature_norms[all_candidates]
+                fs_values = self._compute_selection_criterion(
+    correlations, feature_norms[all_candidates])
             else:
                 # Orthogonalization for subsequent features
                 proj_matrix = Q.T @ X_candidates
@@ -430,7 +468,9 @@ class RGS(BaseEstimator, RegressorMixin):
                 # Handle numerical issues
                 fs_values = np.full(len(all_candidates), -np.inf)
                 valid_mask = orth_norms > 1e-10
-                fs_values[valid_mask] = correlations[valid_mask] / orth_norms[valid_mask]
+                if np.any(valid_mask):
+                    fs_values[valid_mask] = self._compute_selection_criterion(
+        correlations[valid_mask], orth_norms[valid_mask])
             
             # Map features to their selection values for quick lookup
             criteria_lookup = {feat: val for feat, val in zip(all_candidates, fs_values)}
@@ -533,7 +573,7 @@ class RGS(BaseEstimator, RegressorMixin):
                 X_unsel = X_centered[:, unselected]
                 correlations = np.abs(X_unsel.T @ y_centered)
                 sel_norms = feature_norms[unselected]
-                selection_values = correlations / sel_norms
+                selection_values = self._compute_selection_criterion(correlations, sel_norms)
             else:
                 # For subsequent features
                 # Extract unselected features
@@ -558,7 +598,7 @@ class RGS(BaseEstimator, RegressorMixin):
                 orth_norms[mask] = np.inf  # Avoid division by zero
                 
                 # Compute selection values
-                selection_values = correlations / orth_norms
+                selection_values = self._compute_selection_criterion(correlations, orth_norms)
             
             # Find best feature
             best_idx = np.argmax(selection_values)
@@ -888,12 +928,13 @@ class RGSCV(BaseEstimator, RegressorMixin):
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
     def __init__(self, k_max, m_grid, n_estimators=1000, n_resample_iter=0, 
-                 k_grid=None, cv=5, scoring=None, random_state=None):
+             k_grid=None, cv=5, scoring=None, method='fs', random_state=None):
         self.k_max = k_max
         self.m_grid = m_grid
         self.n_estimators = n_estimators
         self.n_resample_iter = n_resample_iter
         self.k_grid = range(1, k_max+1) if k_grid is None else k_grid
+        self.method = method
         self.random_state = random_state
         self.cv = cv
         self.scoring = scoring  # This will be a scorer factory function
@@ -931,6 +972,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                     m=m,
                     n_estimators=self.n_estimators,
                     n_resample_iter=self.n_resample_iter,
+                    method=self.method,
                     random_state=self.random_state
                 )
                 model.fit(X, y)

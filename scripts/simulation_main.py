@@ -608,7 +608,8 @@ def run_one_dgp_iter(
     # Initialize result dictionary
     result = {
         'simulation': sim_num,
-        'sigma': sigma
+        'sigma': sigma,
+        'method': params['model'].get('method', 'fs')
     }
     
     
@@ -966,8 +967,8 @@ def run_one_dgp_iter(
         params['model']['m_grid'],
         params['data']['n_predictors']
     )
-    print(f"m_grid type: {type(m_grid)}")
-    print(f"m_grid content: {m_grid}")
+    # print(f"m_grid type: {type(m_grid)}")
+    # print(f"m_grid content: {m_grid}")
 
     # Fit RGSCV
     start_time = time.time()
@@ -976,6 +977,7 @@ def run_one_dgp_iter(
         m_grid=m_grid,
         n_estimators=params['model']['rgscv']['n_estimators'],
         n_resample_iter=params['model']['rgscv']['n_resample_iter'],
+        method=params['model'].get('method', 'fs'),
         random_state=seed+sim_num,
         cv=cv_value,
         scoring=make_k_scorer  # Use MSE scorer
@@ -1059,6 +1061,7 @@ def run_one_dgp_iter(
         m_grid=list([params['data']['n_predictors']]),
         n_estimators=1,
         n_resample_iter=0,
+        method=params['model'].get('method', 'fs'),
         random_state=seed+sim_num,
         cv=cv_value,
         scoring=make_k_scorer  # Use MSE scorer
