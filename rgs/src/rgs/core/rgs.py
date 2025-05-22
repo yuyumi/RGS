@@ -109,6 +109,20 @@ class RGS(BaseEstimator, RegressorMixin):
         # Validate method parameter
         assert self.method in ['fs', 'omp'], "method must be 'fs' or 'omp'"
         
+        # Check for near-constant features
+        X_centered = X - X.mean(axis=0)
+        feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
+        
+        near_zero_features = np.where(feature_norms < 1e-10)[0]
+        if len(near_zero_features) > 0:
+            raise ValueError(
+                f"Features {list(near_zero_features)} have near-zero variance "
+                f"(norms < 1e-10). These are essentially constant features that "
+                f"provide no predictive information and cause numerical instability. "
+                f"Please remove them before fitting using sklearn.feature_selection.VarianceThreshold "
+                f"or manual preprocessing."
+            )
+        
         # Set m based on alpha if not provided
         if self.m is None and self.alpha is not None:
             self.m = max(1, int(np.ceil(self.alpha * n_features)))
@@ -190,7 +204,10 @@ class RGS(BaseEstimator, RegressorMixin):
             
         if method == 'fs':
             # Forward Selection: normalize by norms
-            return correlations / norms
+            valid_mask = norms > 1e-10
+            result = np.full_like(correlations, -np.inf)
+            result[valid_mask] = correlations[valid_mask] / norms[valid_mask]
+            return result
         elif method == 'omp':
             # OMP: use raw correlations
             return correlations
@@ -559,7 +576,7 @@ class RGS(BaseEstimator, RegressorMixin):
         
         # Pre-compute feature norms (constant across iterations)
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
-        feature_norms[feature_norms < 1e-10] = 1.0
+        # feature_norms[feature_norms < 1e-10] = 1.0
         
         # Main loop - select one feature at a time
         for k in range(1, self.k_max + 1):
@@ -695,7 +712,7 @@ class RGS(BaseEstimator, RegressorMixin):
         
         # Pre-compute feature norms using vectorized operations
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
-        feature_norms[feature_norms < 1e-10] = 1.0
+        # feature_norms[feature_norms < 1e-10] = 1.0
         
         # Initialize feature tracking
         if self.use_bits:
