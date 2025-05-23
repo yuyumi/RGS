@@ -28,11 +28,12 @@ class BaggedGS(BaseEstimator, RegressorMixin):
         If string, uses sklearn's scoring methods.
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
-    def __init__(self, k_max, n_estimators=500, random_state=None, cv=5, scoring=None):
+    def __init__(self, k_max, n_estimators=500, random_state=None, method='fs',cv=5, scoring=None):
         self.k_max = k_max
         self.n_estimators = n_estimators
         self.random_state = random_state
         self.cv = cv
+        self.method = method
         self.scoring = scoring
         
     def _get_scorer(self, k):
@@ -66,6 +67,7 @@ class BaggedGS(BaseEstimator, RegressorMixin):
             k_max=self.k_max,
             m=p,  # Use all features as candidates
             n_estimators=1,  # Single replicate
+            method=self.method,
             random_state=random_state
         )
         rgs.fit(X_sample, y_sample)

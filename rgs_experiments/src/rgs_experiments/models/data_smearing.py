@@ -31,12 +31,13 @@ class SmearedGS(BaseEstimator, RegressorMixin):
         If callable, expects a function with signature scorer(y_true, y_pred).
     """
     def __init__(self, k_max, n_estimators=500, noise_scale=1.0, 
-                 random_state=None, cv=5, scoring=None):
+                 random_state=None, method='fs', cv=5, scoring=None):
         self.k_max = k_max
         self.n_estimators = n_estimators
         self.noise_scale = noise_scale
         self.random_state = random_state
         self.cv = cv
+        self.method = method
         self.scoring = scoring
         
     def _get_scorer(self, k):
@@ -65,6 +66,7 @@ class SmearedGS(BaseEstimator, RegressorMixin):
             k_max=self.k_max,
             m=p,  # Use all features as candidates
             n_estimators=1,  # Single replicate
+            method=self.method,
             random_state=random_state
         )
         rgs.fit(X, y_smeared)

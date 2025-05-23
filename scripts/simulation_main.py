@@ -792,12 +792,18 @@ def run_one_dgp_iter(
         'f_score_elastic': f_score_elastic
     })
 
+    # print(f"DEBUG: params method = {params['model'].get('method', 'fs')}")
+    # print(f"DEBUG: Full model params = {params['model']}")
+    # print(f"DEBUG: Method lookup = {params['model'].get('method', 'fs')}")
+    # print(f"DEBUG: Direct method access = {params['model']['method'] if 'method' in params['model'] else 'NOT FOUND'}")
+
     # Fit and evaluate BaggedGS
     start_time = time.time()
     bagged_gs = BaggedGS(
         k_max=params['model']['k_max'],
         n_estimators=params['model']['bagged_gs']['n_estimators'],
         random_state=seed+sim_num,
+        method=params['model'].get('method', 'fs'),
         cv=cv_value,
         scoring=make_k_scorer  # Use MSE scorer
     )
@@ -883,6 +889,7 @@ def run_one_dgp_iter(
         n_estimators=params['model']['smeared_gs']['n_estimators'],
         noise_scale=params['model']['smeared_gs']['param_grid']['noise_scale'],
         random_state=seed+sim_num,
+        method=params['model'].get('method', 'fs'),
         cv=cv_value,
         scoring=make_k_scorer  # Use MSE scorer
     )

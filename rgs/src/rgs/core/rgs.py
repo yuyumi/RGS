@@ -10,6 +10,7 @@ from scipy.linalg import lstsq
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import KFold
 from sklearn.metrics import get_scorer
+from collections import defaultdict, Counter
 
 import numba as nb
 from numba import jit, float64, int64, boolean
@@ -201,6 +202,8 @@ class RGS(BaseEstimator, RegressorMixin):
         """
         if method is None:
             method = self.method
+
+        # print(f"DEBUG: Using method={method}")
             
         if method == 'fs':
             # Forward Selection: normalize by norms
@@ -385,19 +388,21 @@ class RGS(BaseEstimator, RegressorMixin):
         Process feature sets in batches for improved performance.
         Uses vectorized operations wherever possible.
         """
+        
         coef_k = np.zeros(self.n_features)
-        new_sets = {}
+        new_sets = defaultdict(int)  # Use defaultdict for cleaner counting
         
         # Sort feature sets by size for better cache locality
         sorted_sets = sorted(active_sets.items(), key=lambda x: (len(x[0]), x[0]))
         
         # First pass: Compute QR, coefficients, and residuals for all feature sets
-        all_data = []  # Will store (M, freq, Q, R, residuals, unselected_features)
+        all_data = []  # Will store (M, freq, Q, residuals, M_comp)
         
         for M, freq in sorted_sets:
-            # Get or compute QR with frequency tracking
+            # Get or compute QR (simplified - no frequency tracking)
             if M in qr_cache:
-                Q, R, cache_freq = qr_cache[M]
+                Q, R = qr_cache[M]
+                del qr_cache[M]  # Delete after use - no frequency tracking needed
             else:
                 # Compute QR from scratch
                 if len(M) > 0:
@@ -407,8 +412,6 @@ class RGS(BaseEstimator, RegressorMixin):
                 else:
                     Q = np.empty((self.n_samples, 0))
                     R = np.empty((0, 0))
-                cache_freq = freq
-                qr_cache[M] = (Q, R, cache_freq)
             
             # Compute coefficients
             if len(M) > 0:
@@ -419,11 +422,6 @@ class RGS(BaseEstimator, RegressorMixin):
             # Compute residuals
             residuals = y_centered - Q @ (Q.T @ y_centered) if len(M) > 0 else y_centered.copy()
             
-            # Update QR cache frequency
-            qr_cache[M] = (Q, R, cache_freq - freq)
-            if qr_cache[M][2] <= 0:
-                del qr_cache[M]
-            
             # Get unselected features
             unselected_mask = np.ones(self.n_features, dtype=bool)
             if len(M) > 0:
@@ -433,10 +431,9 @@ class RGS(BaseEstimator, RegressorMixin):
             # Store all data needed for processing candidates
             all_data.append((M, freq, Q, residuals, M_comp))
         
-        # Second pass: Process all candidate features in a single batch for each feature set
-        # This replaces the million+ individual calls to _batch_process_candidates
+        # Second pass: True batch processing of all candidate features
         for M, freq, Q, residuals, M_comp in all_data:
-            if len(M_comp) == 0:
+            if len(M_comp) == 0 or freq == 0:
                 continue
             
             # Create consistent random seed from feature set and base seed
@@ -452,30 +449,28 @@ class RGS(BaseEstimator, RegressorMixin):
             if n_candidates == 0:
                 continue
             
-            # Generate random samples all at once (instead of one at a time)
-            all_candidates = set()
+            # Generate ALL random samples at once
             all_samples = []
-            
             for i in range(freq):
                 sample_indices = generator.choice(len(M_comp), size=n_candidates, replace=False)
                 sample = M_comp[sample_indices]
                 all_samples.append(sample)
-                all_candidates.update(sample)
             
-            # Convert to array for vectorized operations
+            # Get all unique candidates across all samples
+            all_candidates = set()
+            for sample in all_samples:
+                all_candidates.update(sample)
             all_candidates = np.array(list(all_candidates))
             
-            # Get candidate features
+            # Batch computation of selection criteria for all candidates
             X_candidates = X_centered[:, all_candidates]
-            
-            # Fast correlation computation
             correlations = np.abs(residuals @ X_candidates)
             
             # Vectorized computation of selection criteria
             if Q.shape[1] == 0:
                 # First feature - simple correlation/norm
                 fs_values = self._compute_selection_criterion(
-    correlations, feature_norms[all_candidates])
+                    correlations, feature_norms[all_candidates])
             else:
                 # Orthogonalization for subsequent features
                 proj_matrix = Q.T @ X_candidates
@@ -487,60 +482,33 @@ class RGS(BaseEstimator, RegressorMixin):
                 valid_mask = orth_norms > 1e-10
                 if np.any(valid_mask):
                     fs_values[valid_mask] = self._compute_selection_criterion(
-        correlations[valid_mask], orth_norms[valid_mask])
+                        correlations[valid_mask], orth_norms[valid_mask])
             
-            # Map features to their selection values for quick lookup
+            # Create lookup dictionary for fast access
             criteria_lookup = {feat: val for feat, val in zip(all_candidates, fs_values)}
             
-            # Process all samples for this feature set at once
-            for sample in all_samples:
-                # Get selection values for this sample
-                sample_values = np.array([criteria_lookup[feat] for feat in sample])
+            # TRUE BATCH PROCESSING: Process all samples at once
+            if len(all_samples) > 0:
+                # Vectorized lookup of selection values for all samples
+                all_sample_values = np.array([[criteria_lookup[feat] for feat in sample] 
+                                            for sample in all_samples])
                 
-                # Select best feature
-                best_idx = np.argmax(sample_values)
-                best_feature = sample[best_idx]
+                # Vectorized selection of best features
+                best_indices = np.argmax(all_sample_values, axis=1)
+                best_features = [all_samples[i][best_idx] for i, best_idx in enumerate(best_indices)]
                 
-                # Create new feature set
-                new_M = tuple(sorted(list(M) + [best_feature]))
+                # Create all new feature sets at once
+                M_list = list(M)
+                new_feature_sets_list = [tuple(sorted(M_list + [feat])) for feat in best_features]
                 
-                # Update new feature sets
-                if new_M in new_sets:
-                    new_sets[new_M] += 1
-                else:
-                    new_sets[new_M] = 1
-                    
-                # Pre-compute QR for next iteration (optional optimization)
-                if new_M in qr_cache:
-                    # Update frequency if already in cache
-                    Q_new, R_new, exist_freq = qr_cache[new_M]
-                    qr_cache[new_M] = (Q_new, R_new, exist_freq + 1)
-                else:
-                    # Use optimized QR update (only if beneficial for performance)
-                    if len(M) > 100:  # Only for large feature sets where QR update is faster than recomputation
-                        # Find the new feature (the one not in M)
-                        new_feature = best_feature
-                        
-                        # Fast rank-one update for QR
-                        x_new = X_centered[:, new_feature]
-                        r_k = Q.T @ x_new
-                        q_k_plus_1 = x_new - Q @ r_k
-                        q_k_plus_1_norm = np.linalg.norm(q_k_plus_1)
-                        
-                        if q_k_plus_1_norm > 1e-10:
-                            q_k_plus_1 = q_k_plus_1 / q_k_plus_1_norm
-                            
-                            # Extend Q and R
-                            Q_new = np.column_stack([Q, q_k_plus_1])
-                            
-                            R_new = np.zeros((Q_new.shape[1], Q_new.shape[1]))
-                            R_new[:R.shape[0], :R.shape[1]] = R
-                            R_new[:R.shape[0], -1] = r_k
-                            R_new[-1, -1] = q_k_plus_1_norm
-                            
-                            qr_cache[new_M] = (Q_new, R_new, 1)
+                # Count frequencies efficiently using Counter
+                new_counts = Counter(new_feature_sets_list)
+                
+                # Merge with existing new_sets using defaultdict
+                for feature_set, count in new_counts.items():
+                    new_sets[feature_set] += count
         
-        return coef_k, new_sets
+        return coef_k, dict(new_sets)  # Convert back to regular dict for compatibility
     
     def _fit_specialized_forward_selection(self, X, y):
         """
@@ -699,6 +667,8 @@ class RGS(BaseEstimator, RegressorMixin):
         # Validate inputs
         X, y = self._validate_inputs(X, y)
         self.n_samples, self.n_features = X.shape
+
+        # print(f"DEBUG: RGS.fit() - method={self.method}, specialized_path={self.m == self.n_features}")
         
         # Specialized path for m=p, B=1 case
         if self.m == self.n_features:
@@ -1018,6 +988,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
                         m=m,
                         n_estimators=self.n_estimators,
                         n_resample_iter=self.n_resample_iter,
+                        method=self.method,
                         random_state=self.random_state
                     )
                     model.fit(X_train, y_train)
@@ -1047,6 +1018,7 @@ class RGSCV(BaseEstimator, RegressorMixin):
             m=self.m_,
             n_estimators=self.n_estimators,
             n_resample_iter=self.n_resample_iter,
+            method=self.method,
             random_state=self.random_state
         )
         self.model_.fit(X, y)
