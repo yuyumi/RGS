@@ -698,12 +698,9 @@ class RGS(BaseEstimator, RegressorMixin):
         self.coef_ = []
         self.intercept_ = []
         
-        # QR cache with frequency tracking
-        # {feature_tuple: (Q, R, remaining_frequency)}
+        # QR cache
         qr_cache = {}
-        qr_cache[tuple()] = (np.empty((self.n_samples, 0)), 
-                             np.empty((0, 0)),
-                             self.n_estimators)
+        qr_cache[tuple()] = (np.empty((self.n_samples, 0)), np.empty((0, 0)))
         
         # Main loop over feature counts
         for k in range(self.k_max + 1):
