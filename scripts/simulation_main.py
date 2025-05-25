@@ -297,7 +297,7 @@ def calculate_mse_for_all_k(model, X_train, y_train):
         mse_k = np.mean((y_train - y_pred_k) ** 2)
         
         # Store in dictionary
-        mse_by_k[k] = mse_k
+        mse_by_k[k] = float(mse_k)
     
     return mse_by_k
 
