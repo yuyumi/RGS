@@ -18,3 +18,5 @@ results/raw/*.json
 params/*.json
 notebooks/*
 old_params/*
+real_data/*.tsv
+.DS_Store
