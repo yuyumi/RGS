@@ -200,9 +200,9 @@ def filter_by_sigma(df):
     sigma_counts = df['sigma'].value_counts().sort_index()
     
     print(f"\nSigma values in combined data:")
-    for sigma in sigma_values:
+    for i, sigma in enumerate(sigma_values, 1):
         count = sigma_counts[sigma]
-        print(f"  σ = {sigma}: {count} rows")
+        print(f"  {i}. σ = {sigma}: {count} rows")
     
     print(f"\nHow would you like to filter sigma values?")
     print("1. Remove specific sigma values")
@@ -213,35 +213,44 @@ def filter_by_sigma(df):
     choice = input("Enter choice (1-4): ").strip()
     
     if choice == '1':
-        to_remove = input("Enter sigma values to REMOVE (comma-separated): ")
+        to_remove = input("Enter sigma numbers to REMOVE (e.g., 1,3,5): ")
         try:
-            remove_values = [float(x.strip()) for x in to_remove.split(',')]
+            remove_indices = [int(x.strip()) - 1 for x in to_remove.split(',')]
+            remove_values = [sigma_values[i] for i in remove_indices if 0 <= i < len(sigma_values)]
             filtered_df = df[~df['sigma'].isin(remove_values)]
             removed_count = len(df) - len(filtered_df)
-            print(f"Removed {removed_count} rows with sigma values {remove_values}")
-        except ValueError:
+            print(f"Removed {removed_count} rows with sigma values: {[f'{i+1}' for i, val in enumerate(sigma_values) if val in remove_values]}")
+        except (ValueError, IndexError):
             print("Invalid input. No filtering applied.")
             filtered_df = df
             
     elif choice == '2':
-        to_keep = input("Enter sigma values to KEEP (comma-separated): ")
+        to_keep = input("Enter sigma numbers to KEEP (e.g., 1,3,5): ")
         try:
-            keep_values = [float(x.strip()) for x in to_keep.split(',')]
+            keep_indices = [int(x.strip()) - 1 for x in to_keep.split(',')]
+            keep_values = [sigma_values[i] for i in keep_indices if 0 <= i < len(sigma_values)]
             filtered_df = df[df['sigma'].isin(keep_values)]
             kept_count = len(filtered_df)
-            print(f"Kept {kept_count} rows with sigma values {keep_values}")
-        except ValueError:
+            print(f"Kept {kept_count} rows with sigma values: {[f'{i+1}' for i, val in enumerate(sigma_values) if val in keep_values]}")
+        except (ValueError, IndexError):
             print("Invalid input. No filtering applied.")
             filtered_df = df
             
     elif choice == '3':
         try:
-            min_sigma = float(input("Enter minimum sigma value: "))
-            max_sigma = float(input("Enter maximum sigma value: "))
-            filtered_df = df[(df['sigma'] >= min_sigma) & (df['sigma'] <= max_sigma)]
-            kept_count = len(filtered_df)
-            print(f"Kept {kept_count} rows with sigma between {min_sigma} and {max_sigma}")
-        except ValueError:
+            min_choice = int(input(f"Enter minimum sigma number (1-{len(sigma_values)}): ")) - 1
+            max_choice = int(input(f"Enter maximum sigma number (1-{len(sigma_values)}): ")) - 1
+            
+            if 0 <= min_choice < len(sigma_values) and 0 <= max_choice < len(sigma_values):
+                min_sigma = sigma_values[min_choice]
+                max_sigma = sigma_values[max_choice]
+                filtered_df = df[(df['sigma'] >= min_sigma) & (df['sigma'] <= max_sigma)]
+                kept_count = len(filtered_df)
+                print(f"Kept {kept_count} rows with sigma between {min_sigma} and {max_sigma}")
+            else:
+                print("Invalid range. No filtering applied.")
+                filtered_df = df
+        except (ValueError, IndexError):
             print("Invalid input. No filtering applied.")
             filtered_df = df
     else:

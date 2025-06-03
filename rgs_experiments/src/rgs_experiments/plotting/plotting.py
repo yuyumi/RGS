@@ -28,6 +28,7 @@ __all__ = [
     'barplot_insample_by_variance_explained', # Commented out
     'barplot_outsample_mse_by_variance_explained',
     'barplot_rte_by_variance_explained',
+    'barplot_rte_by_sigma',
     'barplot_rie_by_sigma',  # New function
     'barplot_rie_by_variance_explained',  # New function
     'plot_mse_vs_df_by_k'
@@ -643,6 +644,16 @@ def barplot_metric_by_sigma(
         df = df.apply(pd.to_numeric, errors='ignore')
         if 'method' in df.columns:
             df = df.drop('method', axis=1)
+
+        # For RIE, we need to calculate it from insample and sigma
+        if metric == 'rie':
+            # Calculate RIE for each method that has insample data
+            for method in PlottingConfig.METHODS:
+                insample_col = f'insample_{method}'
+                if insample_col in df.columns and not df[insample_col].isna().all():
+                    # Calculate RIE as (insample/sigma^2)+1
+                    df[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
+        
         available_methods = get_available_methods(df, metric)
         
         if not available_methods:
@@ -726,8 +737,6 @@ def barplot_metric_by_sigma(
             enhance_log_axis(ax)
             ax.set_ylim(bottom=0.0001)
         else:
-            # For linear scale, ensure y-axis starts from 0
-            ax.set_ylim(bottom=0)
             
             # Add proper y-tick formatting for linear scale
             formatter = ticker.FormatStrFormatter('%.2f')
@@ -962,6 +971,9 @@ def barplot_insample_by_sigma(*args, **kwargs):
 
 def barplot_rie_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='rie', **kwargs)
+
+def barplot_rte_by_sigma(*args, **kwargs):
+    return barplot_metric_by_sigma(*args, metric='rte', **kwargs)
 
 def barplot_outsample_mse_by_sigma(*args, **kwargs):
     return barplot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)

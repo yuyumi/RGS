@@ -100,7 +100,9 @@ def create_plots_for_result(
             'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
             'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True}),
             'rie_pve': (barplot_rie_by_variance_explained, {}),
-            'rte_pve': (barplot_rte_by_variance_explained, {'log_scale': False})
+            'rte_pve': (barplot_rte_by_variance_explained, {'log_scale': False}),
+            'rie_sigma': (barplot_rie_by_sigma, {'log_scale': False}),
+            'rte_sigma': (barplot_rte_by_sigma, {'log_scale': False})
         }
         
         # Generate basic plots
