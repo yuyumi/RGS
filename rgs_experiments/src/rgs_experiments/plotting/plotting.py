@@ -270,7 +270,7 @@ def plot_metric_by_sigma(
         if log_scale:
             ax.set_yscale('log')
             enhance_log_axis(ax)
-            ax.set_ylim(bottom=0.0001)
+            # ax.set_ylim(bottom=0.0001)
         else:
             # Linear scale
             ax.set_yscale('linear')

@@ -59,16 +59,30 @@ def get_sigma_list(sigma_params, signal_proportion, n_predictors):
     list
         List of sigma values to use
     """
-    if sigma_params['type'] == 'list':
-        return sigma_params['values']
-    elif sigma_params['type'] == 'pve':
-        pve_values = np.linspace(
-            sigma_params['params']['min_pve'],
-            sigma_params['params']['max_pve'],
-            sigma_params['params']['num_points']
-        )
+    if sigma_params['type'] == 'pve':
+        if sigma_params['style'] == 'list':
+            pve_values = sigma_params['values']
+        elif sigma_params['style'] == 'range':
+            pve_values = np.linspace(
+                sigma_params['params']['min'],
+                sigma_params['params']['max'],
+                sigma_params['params']['num_points']
+            )
+        else:
+            raise ValueError(f"Unknown PVE style: {sigma_params['style']}")
         return [pve_to_sigma(pve, signal_proportion, n_predictors) 
                 for pve in pve_values]
+    elif sigma_params['type'] == 'sigma':
+        if sigma_params['style'] == 'list':
+            return sigma_params['values']
+        elif sigma_params['style'] == 'range':
+            return np.linspace(
+                sigma_params['params']['min'],
+                sigma_params['params']['max'],
+                sigma_params['params']['num_points']
+            )
+        else:
+            raise ValueError(f"Unknown sigma style: {sigma_params['style']}")
     else:
         raise ValueError(f"Unknown sigma type: {sigma_params['type']}")
 
