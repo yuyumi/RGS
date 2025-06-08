@@ -471,7 +471,12 @@ def plot_mse_vs_df_by_k(
     """
     try:
         df = pd.read_csv(results_path)
-        df = df.apply(pd.to_numeric, errors='ignore')
+        # Convert columns to numeric, keeping non-numeric columns as-is
+        for col in df.columns:
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except (ValueError, TypeError):
+                pass  # Keep original values if conversion fails
         if 'method' in df.columns:
             df = df.drop('method', axis=1)
         
