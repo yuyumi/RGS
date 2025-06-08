@@ -383,7 +383,7 @@ def plot_metric_by_variance_explained(
         if log_scale:
             ax.set_yscale('log')
             enhance_log_axis(ax)
-            ax.set_ylim(bottom=0.0001)
+            # ax.set_ylim(bottom=0.0001)
         else:
             # Linear scale
             ax.set_yscale('linear')
@@ -636,7 +636,7 @@ def barplot_metric_by_sigma(
     metric: str = 'mse',
     save_path: Optional[Path] = None,
     show_std: bool = True,
-    log_scale: bool = True
+    log_scale: bool = False
 ) -> Optional[plt.Figure]:
     """Create bar plot of metric vs sigma with error bars."""
     try:
@@ -644,6 +644,10 @@ def barplot_metric_by_sigma(
         df = df.apply(pd.to_numeric, errors='ignore')
         if 'method' in df.columns:
             df = df.drop('method', axis=1)
+
+        # Add SNR calculation
+        norm_beta_squared = 10.0  # β^T Σβ = 10 based on your setup
+        df['snr'] = norm_beta_squared / (df['sigma']**2)
 
         # For RIE, we need to calculate it from insample and sigma
         if metric == 'rie':
@@ -675,23 +679,15 @@ def barplot_metric_by_sigma(
         fig, ax = create_figure()
         setup_plot_style()
         
-        sigma_values = sorted(df['sigma'].unique())
+        snr_values = sorted(df['snr'].unique())
         n_methods = len(available_methods)
-        n_sigmas = len(sigma_values)
+        n_snr = len(snr_values)
         
         # Calculate bar positions
         bar_width = 0.8 / n_methods
         
-        # First, group methods by type (GS-based vs non-GS)
-        gs_methods = [m for m in available_methods if 'gs' in m.lower() or m.lower() == 'rgs']
-        non_gs_methods = [m for m in available_methods if m not in gs_methods]
-        
-        # Sort each group to maintain color progression
-        gs_methods.sort()
-        non_gs_methods.sort()
-        
-        # Combine sorted groups
-        sorted_methods = non_gs_methods + gs_methods
+        # Maintain the order from PlottingConfig.METHODS
+        sorted_methods = [m for m in PlottingConfig.METHODS if m in available_methods]
         
         for i, method in enumerate(sorted_methods):
             metric_col = f'{metric}_{method}'
@@ -700,10 +696,10 @@ def barplot_metric_by_sigma(
             stds = []
             positions = []
             
-            for j, sigma in enumerate(sigma_values):
-                sigma_data = df[df['sigma'] == sigma][metric_col]
-                means.append(sigma_data.mean())
-                stds.append(sigma_data.std())
+            for j, snr in enumerate(snr_values):
+                snr_data = df[df['snr'] == snr][metric_col]
+                means.append(snr_data.mean())
+                stds.append(snr_data.std())
                 # Position bars for each method group
                 positions.append(j + (i - n_methods/2 + 0.5) * bar_width)
             
@@ -735,7 +731,7 @@ def barplot_metric_by_sigma(
         if log_scale:
             ax.set_yscale('log')
             enhance_log_axis(ax)
-            ax.set_ylim(bottom=0.0001)
+            # ax.set_ylim(bottom=0.0001)
         else:
             
             # Add proper y-tick formatting for linear scale
@@ -756,13 +752,28 @@ def barplot_metric_by_sigma(
             ax.grid(which='minor', axis='y', linestyle=':', alpha=0.2)
         
         # Set the x-ticks to be centered for each sigma group
-        ax.set_xticks(range(n_sigmas))
-        ax.set_xticklabels([f"{sigma:.2f}" for sigma in sigma_values])
+        ax.set_xticks(range(n_snr))
+        ax.set_xticklabels([f"{snr:.2f}" for snr in snr_values])
         
-        ax.set_xlabel('Sigma (Noise Level)')
+        ax.set_xlabel('SNR')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper left')
+        ax.legend(loc='upper right')
         ax.grid(True, axis='y', alpha=0.3)
+
+        # Calculate appropriate y-limits from the data
+        all_means = []
+        for method in sorted_methods:
+            metric_col = f'{metric}_{method}'
+            for snr in snr_values:
+                snr_data = df[df['snr'] == snr][metric_col]
+                all_means.append(snr_data.mean())
+
+        if all_means:
+            min_val = min(all_means)
+            max_val = max(all_means) 
+            data_range = max_val - min_val
+            padding = data_range * 0.05
+            ax.set_ylim(bottom=min_val - padding, top=max_val + padding)
         
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -861,9 +872,9 @@ def barplot_metric_by_variance_explained(
             enhance_log_axis(ax)
         else:
             # For linear scale or for RTE
-            if metric != 'rte':
-                # For non-RTE metrics, start from 0
-                ax.set_ylim(bottom=0)
+            # if metric != 'rte':
+            #     # For non-RTE metrics, start from 0
+            #     # ax.set_ylim(bottom=0)
             
             # Add proper y-tick formatting for linear scale
             formatter = ticker.FormatStrFormatter('%.3f')

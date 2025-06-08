@@ -4,7 +4,8 @@
         "base_seed": 42,
         "use_validation_set": false,
         "sigma": {
-            "type": "list",
+            "type": "sigma",
+            "style": "list",
             "values": [0.05, 0.09, 0.14, 0.25, 0.42, 0.71, 1.22, 2.07, 3.52, 6.00]
         }
     },
