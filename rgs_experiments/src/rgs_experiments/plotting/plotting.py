@@ -155,20 +155,28 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
     if 'method' in df.columns:
         df = df.drop('method', axis=1)
     
+    # Prepare all new columns at once to avoid fragmentation
+    new_columns = {}
+    
     # Add SNR calculation (same as original)
     norm_beta_squared = 10.0  # β^T Σβ = 10 based on setup
-    df['snr'] = norm_beta_squared / (df['sigma']**2)
+    new_columns['snr'] = norm_beta_squared / (df['sigma']**2)
     
     # Calculate RIE if needed
     if metric == 'rie':
         for method in PlottingConfig.METHODS:
             insample_col = f'insample_{method}'
             if insample_col in df.columns and not df[insample_col].isna().all():
-                df[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
+                new_columns[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
     
     # Calculate variance explained if needed
     if need_variance:
-        df['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
+        new_columns['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
+    
+    # Add all new columns at once using concat to avoid fragmentation
+    if new_columns:
+        new_df = pd.DataFrame(new_columns, index=df.index)
+        df = pd.concat([df, new_df], axis=1)
     
     return df
 
@@ -232,7 +240,8 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
         
         ax.set_xlabel('Sigma (Noise Level)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper left')
+        # Original hardcoded positioning: ax.legend(loc='upper left')
+        ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
         
         if save_path:
@@ -285,7 +294,8 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte', 'rie'] else 'upper left')
+        # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte', 'rie'] else 'upper left')
+        ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
         
         if save_path:
@@ -500,7 +510,8 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
         ax.set_xticklabels([f"{snr:.2f}" for snr in snr_values])
         ax.set_xlabel('SNR')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
+        # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
+        ax.legend(loc='best')
         ax.grid(True, axis='y', alpha=0.3)
 
         # Calculate appropriate y-limits from the data, including error bars if shown
@@ -587,7 +598,8 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
         ax.set_xticklabels([f"{var:.2f}" for var in var_explained_values])
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
+        # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
+        ax.legend(loc='best')
         ax.grid(True, axis='y', alpha=0.3)
 
         # Calculate appropriate y-limits for ALL metrics, including error bars if shown
