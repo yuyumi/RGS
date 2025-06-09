@@ -1,16 +1,36 @@
 from pathlib import Path
 import json
 import argparse
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 from rgs_experiments.plotting.plotting import *
+
+def extract_metric_from_plot_name(plot_name: str) -> str:
+    """Extract the metric name from plot name for global scaling lookup."""
+    # Handle special cases first
+    if plot_name.startswith('coef_recovery'):
+        return 'coef_recovery'
+    elif plot_name.startswith('outsample'):
+        return 'outsample_mse'
+    elif plot_name.startswith('insample'):
+        return 'insample'
+    elif plot_name.startswith('mse'):
+        return 'mse'
+    elif plot_name.startswith('rte'):
+        return 'rte'
+    elif plot_name.startswith('rie'):
+        return 'rie'
+    else:
+        # Fallback to first part
+        return plot_name.split('_')[0]
 
 def create_plots_for_result(
     results_path: Path,
     figures_dir: Path,
     params_path: Optional[Path] = None,
     show_std: bool = False,
-    plot_type: str = 'both'  # Parameter to choose between 'line', 'bar', or 'both'
+    plot_type: str = 'both',  # Parameter to choose between 'line', 'bar', or 'both'
+    global_ylim_dict: Optional[Dict[str, Tuple[float, float]]] = None
 ) -> None:
     """Create all plots for a single simulation result file."""
     print(f"\nProcessing: {results_path.name} with {plot_type} plots")
@@ -49,6 +69,7 @@ def create_plots_for_result(
                     show_std=show_std, 
                     method_filter=lambda m: m in ['rgs', 'original_gs']
                 )
+                # Note: MSE vs DF plots don't use global scaling as they have different axis meanings
                 print(f"Created: {save_path.name}")
         except Exception as e:
             print(f"Error creating mse_vs_df_by_k plot: {str(e)}")
@@ -84,6 +105,10 @@ def create_plots_for_result(
                     filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 else:
                     save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    # Add global y-limits if available for this metric
+                    metric = extract_metric_from_plot_name(plot_name)
+                    if global_ylim_dict and metric in global_ylim_dict:
+                        plot_kwargs['global_ylim'] = global_ylim_dict[metric]
                     plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 
                 print(f"Created: {save_path.name}")
@@ -120,13 +145,17 @@ def create_plots_for_result(
                     filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 else:
                     save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    # Add global y-limits if available for this metric
+                    metric = extract_metric_from_plot_name(plot_name)
+                    if global_ylim_dict and metric in global_ylim_dict:
+                        plot_kwargs['global_ylim'] = global_ylim_dict[metric]
                     plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 
                 print(f"Created: {save_path.name}")
             except Exception as e:
                 print(f"Error creating {plot_name}: {str(e)}")
 
-def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, plot_type: str = 'both', show_std: bool = True) -> None:
+def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, plot_type: str = 'both', show_std: bool = True, global_scale: bool = True) -> None:
     """Run plotting for all simulation results matching the pattern."""
     # Get project root directory (two levels up from this script)
     root_dir = Path(__file__).parent.parent
@@ -162,6 +191,40 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
     for i, result_file in enumerate(results_files, 1):
         print(f"{i}. {result_file.name}")
     
+    # Collect global y-limits if global_scale is enabled
+    global_ylim_dict = None
+    if global_scale:
+        print("\nCollecting global y-limits for consistent scaling...")
+        global_ylim_dict = {}
+        
+        # Define metrics to collect global limits for
+        metrics_to_scale = ['mse', 'outsample_mse', 'coef_recovery', 'rte', 'rie', 'insample']
+        
+        for metric in metrics_to_scale:
+            try:
+                # Determine log_scale based on plot configuration
+                log_scale = False
+                if metric in ['mse', 'outsample_mse', 'insample']:
+                    log_scale = True  # These typically use log scale in bar plots
+                
+                global_ylim = collect_global_y_limits(
+                    results_files, 
+                    metric, 
+                    show_std=show_std, 
+                    log_scale=log_scale
+                )
+                if global_ylim:
+                    global_ylim_dict[metric] = global_ylim
+                    print(f"  {metric}: y-limits = ({global_ylim[0]:.3e}, {global_ylim[1]:.3e})")
+            except Exception as e:
+                print(f"  Warning: Could not collect global limits for {metric}: {str(e)}")
+        
+        if not global_ylim_dict:
+            print("  No global limits collected, using individual scaling")
+            global_ylim_dict = None
+        else:
+            print(f"  Collected global limits for {len(global_ylim_dict)} metrics")
+    
     # Process each results file
     for result_file in results_files:
         try:
@@ -177,7 +240,8 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
                 figures_dir, 
                 params_file, 
                 show_std=show_std,
-                plot_type=plot_type
+                plot_type=plot_type,
+                global_ylim_dict=global_ylim_dict
             )
         except Exception as e:
             print(f"Error processing {result_file.name}:")
@@ -194,7 +258,10 @@ if __name__ == "__main__":
     parser.set_defaults(show_std=True)
     parser.add_argument('--plot-type', type=str, choices=['line', 'bar', 'both'], default='both',
                       help='Type of plots to generate: line, bar, or both (default: both)')
+    parser.add_argument('--no-global-scale', action='store_false', dest='global_scale',
+                      help='Disable global y-axis scaling (each plot uses its own scale)')
+    parser.set_defaults(global_scale=True)
     
     args = parser.parse_args()
     
-    run_plotting(args.results_dir, args.pattern, args.plot_type, args.show_std)
+    run_plotting(args.results_dir, args.pattern, args.plot_type, args.show_std, args.global_scale)
