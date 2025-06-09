@@ -1,51 +1,12 @@
 # Randomized Greedy Selection (RGS)
 
-This repository contains two Python packages:
-1. `rgs`: Core implementation of the Randomized Greedy Selection algorithm
-2. `rgs_experiments`: Experimental framework and utilities for comparing RGS with other methods
+A research framework for Randomized Greedy Selection algorithms with comprehensive simulation and comparison tools.
 
-## Repository Structure
-```
-repository-root/
-├── rgs/                    # Core RGS package
-│   └── src/
-│       └── rgs/
-│           ├── __init__.py
-│           ├── rgs.py
-│           └── penalized_score.py
-│
-├── rgs_experiments/        # Experiments package
-│   └── src/
-│       └── rgs_experiments/
-│           ├── plotting/   
-│           │   └── plotting.py
-│           └── utils/      
-│               ├── sim_util_dgs.py
-│               └── sim_util.py
-│
-├── scripts/               # Experiment scripts
-│   ├── simulation_main.py
-│   ├── simulation_runner.py
-│   └── plotting_runner.py
-│
-├── params/               # Parameter files
-│   └── sim_params.json
-│
-└── results/              # Results and figures
-    ├── raw/             # Raw simulation results
-    └── figures/         # Generated plots
-```
+## Quick Start
 
-## Installation
+### Installation
 
-### Requirements
-- Python >=3.8
-- pip
-- virtualenv (recommended)
-
-### Setup
-
-1. Create and activate a virtual environment:
+1. **Set up environment:**
 ```bash
 # Create virtual environment
 python -m venv venv
@@ -57,133 +18,126 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-2. Install the packages:
+2. **Install packages:**
 ```bash
 # Install core RGS package
 pip install ./rgs
 
-# Install experiments package
+# Install experiments package  
 pip install ./rgs_experiments
 ```
 
-## Running Experiments
+### Running Simulations
 
-### 1. Configure Parameters
-
-Copy and modify the parameter template in params/:
+**Single simulation:**
 ```bash
-# Copy template
-cp templates/template_params.json params/sim_params.json
+# Run with specific parameter file
+python scripts/run_simulation.py params/your_params.json
 
-# Edit parameters as needed
+# Validate parameters only
+python scripts/run_simulation.py --validate-only params/your_params.json
 ```
 
-Key parameters include:
-- Covariance type (orthogonal, banded, block)
-- Signal type (exact, inexact, nonlinear, laplace, cauchy)
-- Number of simulations
-- Sigma values (noise levels)
-
-### 2. Run Simulations
-
-Single parameter file:
+**Batch simulations:**
 ```bash
-python scripts/simulation_main.py
+# Run all parameter files in params/
+python scripts/run_simulation.py
+
+# Run files matching pattern
+python scripts/run_simulation.py --pattern "banded"
+
+# Use different parameter directory
+python scripts/run_simulation.py --params-dir old_params
 ```
 
-Multiple parameter files:
+### Generate Plots
+
 ```bash
-# Run all parameter files
-python scripts/simulation_runner.py
-
-# Run specific patterns
-python scripts/simulation_runner.py --pattern "banded"
-```
-
-Results will be saved in `results/raw/` with naming pattern:
-`simulation_results_{covariance}_{signal}_{timestamp}.csv`
-
-### 3. Generate Plots
-
-Generate plots for all results:
-```bash
+# Generate plots for all results
 python scripts/plotting_runner.py
+
+# Plot specific results
+python scripts/plotting_runner.py --pattern "orthogonal"
 ```
 
-Generate plots for specific results:
-```bash
-python scripts/plotting_runner.py --pattern "banded"
-```
+## Configuration
 
-Plots will be saved in `results/figures/` and include:
-- MSE vs sigma
-- MSE vs proportion of variance explained (PVE)
-- In-sample vs sigma
-- In-sample vs PVE
-- Degrees of freedom vs sigma
-- Degrees of freedom vs PVE
-- MSE vs k for different sigma values
-- Degrees of freedom vs k for different sigma values
+### Parameter Files
+
+Create JSON parameter files in `params/` directory. Key parameters:
+
+- **Data generation:**
+  - `covariance_type`: "orthogonal", "banded", "block"
+  - `signal_type`: "exact", "inexact", "nonlinear", "laplace", "cauchy"
+  - `n_train`, `n_test`, `n_predictors`: Sample sizes and dimensions
+
+- **Simulation settings:**
+  - `n_sim`: Number of simulation replications
+  - `sigma_vals`: Noise levels to test
+  - `seed`: Random seed for reproducibility
+
+- **Methods:**
+  - `k_max`, `m_grid`: RGS parameters
+  - `n_replications`, `n_resample_iter`: Bootstrap parameters
+
+See `templates/` for example parameter files.
 
 ## Package Usage
 
-### Using RGS Package
+### Core RGS Algorithm
+
 ```python
 from rgs import RGSCV
 from rgs.penalized_score import create_penalized_scorer
 
-# First create a base scorer function with the known parameters
-base_scorer = create_penalized_scorer(sigma2=sigma**2, 
-                                    n=n_train, 
-                                    p=p)
+# Create penalized scorer
+scorer = create_penalized_scorer(sigma2=sigma**2, n=n_train, p=n_features)
 
-# Then create a scorer for a specific k value
-# Note: You'll typically let RGSCV handle this internally
-scorer_k = base_scorer(k=some_k_value)
-
-# Create and fit model
-rgscv = RGSCV(
-    k_max=k_max,
-    m_grid=m_grid,
-    n_replications=n_replications,
-    n_resample_iter=n_resample_iter,
-    random_state=seed,
-    cv=cv,
-    scoring=scorer_k
+# Fit RGS model
+model = RGSCV(
+    k_max=50,
+    m_grid=[5, 10, 20],
+    n_replications=100,
+    n_resample_iter=50,
+    cv=5,
+    scoring=scorer(k=25),  # Example k value
+    random_state=42
 )
-rgscv.fit(X, y)
 
-# Make predictions
-y_pred = rgscv.predict(X)
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
 ```
 
-### Using Experiment Utilities
+### Simulation Utilities
+
 ```python
 from rgs_experiments.utils.sim_util_dgs import (
     generate_banded_X,
     generate_exact_sparsity_example
 )
 
-# Generate design matrix
-X = generate_banded_X(n_predictors, n_train)
+# Generate correlated design matrix
+X = generate_banded_X(n_features=100, n_samples=500)
 
-# Generate response
+# Generate sparse response with known structure
 X, y, y_true, beta_true, p, sigma = generate_exact_sparsity_example(
-    X, 
-    signal_proportion, 
-    sigma,
-    seed=seed
+    X, signal_proportion=0.2, sigma=1.0, seed=42
 )
 ```
 
-## Contributing
+## Output
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a pull request
+- **Simulation results:** Saved to `results/raw/` as CSV files
+- **Plots:** Generated in `results/figures/` including:
+  - MSE vs noise level
+  - MSE vs proportion of variance explained
+  - Degrees of freedom comparisons
+  - Performance across different k values
+
+## Version
+
+**v1.1.0** - Major performance improvements and critical bug fixes. Now supports large-scale problems (p=2000+) with significantly improved computational efficiency.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.

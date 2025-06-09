@@ -17,13 +17,21 @@ from numba import jit, float64, int64, boolean
 
 @jit(nopython=True)
 def orthogonalize_vector(x, Q):
-    """Orthogonalize vector x against columns of Q using Numba for speed"""
-    x_orth = x.copy()
+    """
+    Orthogonalize vector x against columns of Q using vectorized operations.
+    This is much faster than the loop-based approach, especially for larger Q.
     
-    for i in range(Q.shape[1]):
-        proj = np.dot(Q[:, i], x)
-        x_orth = x_orth - proj * Q[:, i]
-        
+    Mathematical operation: x_orth = x - Q @ (Q.T @ x)
+    """
+    if Q.shape[1] == 0:
+        # No vectors to orthogonalize against
+        return x.copy()
+    
+    # Vectorized version: compute all projections at once using BLAS
+    # This is equivalent to the loop but much faster
+    projections = Q.T @ x  # Shape: (k,) where k = Q.shape[1]
+    x_orth = x - Q @ projections  # Vectorized subtraction of all projections
+    
     return x_orth
 
 
@@ -139,9 +147,8 @@ class RGS(BaseEstimator, RegressorMixin):
         # if self.m == n_features and self.n_estimators == 1:
         #     print("Using specialized forward selection path (m=p, B=1)")
         
-        # Determine if we can use bit encoding (p ≤ 64)
-        self.use_bits = n_features <= 64
-        if not self.use_bits and n_features > 100:
+        # Always use dictionary-based implementation (more reliable and general)
+        if n_features > 100:
             warnings.warn("Large feature count (>100) detected. Performance may be impacted.")
         
         return X, y
@@ -220,6 +227,7 @@ class RGS(BaseEstimator, RegressorMixin):
     def _vectorized_bootstrap_resample(self, feature_freqs, bootstrap_iter=0):
         """
         Highly optimized bootstrap resampling using vectorized operations.
+        Dictionary-based implementation only.
         """
         # Initialize random generator with varying seed
         if self.random_state is not None:
@@ -229,54 +237,30 @@ class RGS(BaseEstimator, RegressorMixin):
         else:
             generator = np.random.RandomState()
         
-        # Handle based on the type of feature_freqs
-        if isinstance(feature_freqs, np.ndarray):
-            # Bit-encoding implementation (array case)
-            # If the array is all zeros (no features), return the array as is
-            if not np.any(feature_freqs):
-                return feature_freqs
-                
-            # Extract non-zero indices and their frequencies for resampling
-            non_zero_indices = np.nonzero(feature_freqs)[0]
-            freqs = feature_freqs[non_zero_indices]
-            total = np.sum(freqs)
+        # Dictionary-based implementation
+        if not feature_freqs:
+            return feature_freqs
             
-            if total == 0:
-                return np.zeros_like(feature_freqs)
-                
-            # Proportions and resampling
-            proportions = freqs / total
-            new_freqs = generator.multinomial(self.n_estimators, proportions)
-            
-            # Update array with new frequencies
-            result = np.zeros_like(feature_freqs)
-            result[non_zero_indices] = new_freqs
-            return result
-        else:
-            # Dictionary-based implementation
-            if not feature_freqs:
-                return feature_freqs
-                
-            # Extract keys and frequencies for vectorized operations
-            features = list(feature_freqs.keys())
-            freqs = np.array(list(feature_freqs.values()), dtype=np.float64)
-            total = np.sum(freqs)
-            
-            if total == 0:
-                return {}
-            
-            # Fast proportion calculation
-            proportions = freqs / total
-            
-            # Fast multinomial sampling
-            new_freqs = generator.multinomial(self.n_estimators, proportions)
-            
-            # Efficient dictionary creation
-            # Only include non-zero frequencies
-            non_zero_idx = np.nonzero(new_freqs)[0]
-            result = {features[i]: new_freqs[i] for i in non_zero_idx}
-            
-            return result
+        # Extract keys and frequencies for vectorized operations
+        features = list(feature_freqs.keys())
+        freqs = np.array(list(feature_freqs.values()), dtype=np.float64)
+        total = np.sum(freqs)
+        
+        if total == 0:
+            return {}
+        
+        # Fast proportion calculation
+        proportions = freqs / total
+        
+        # Fast multinomial sampling
+        new_freqs = generator.multinomial(self.n_estimators, proportions)
+        
+        # Efficient dictionary creation
+        # Only include non-zero frequencies
+        non_zero_idx = np.nonzero(new_freqs)[0]
+        result = {features[i]: new_freqs[i] for i in non_zero_idx}
+        
+        return result
     
     def _batch_process_candidates(self, X_centered, residuals, Q, M, frequency, feature_norms):
         """
@@ -684,15 +668,9 @@ class RGS(BaseEstimator, RegressorMixin):
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
         # feature_norms[feature_norms < 1e-10] = 1.0
         
-        # Initialize feature tracking
-        if self.use_bits:
-            # Bit-encoded implementation
-            feature_freqs = np.zeros(2**min(64, self.n_features), dtype=int)
-            feature_freqs[0] = self.n_estimators  # Empty set
-        else:
-            # Dictionary-based implementation
-            feature_sets = [{} for _ in range(self.k_max + 2)]  # +2 to avoid index errors
-            feature_sets[0][tuple()] = self.n_estimators
+        # Initialize feature tracking - dictionary-based implementation
+        feature_sets = [{} for _ in range(self.k_max + 2)]  # +2 to avoid index errors
+        feature_sets[0][tuple()] = self.n_estimators
         
         # Initialize model storage
         self.coef_ = []
@@ -707,32 +685,13 @@ class RGS(BaseEstimator, RegressorMixin):
             # print(f"Processing k={k}")
             
             # Get current feature sets
-            if self.use_bits:
-                # Extract sets of size k from bit array
-                active_sets = {}
-                for encoding in np.nonzero(feature_freqs)[0]:
-                    features = self._decode_features(encoding)
-                    if len(features) == k:
-                        active_sets[features] = feature_freqs[encoding]
-            else:
-                active_sets = feature_sets[k].copy()
+            active_sets = feature_sets[k].copy()
             
             # Apply bootstrap resampling (with fixed strength - faithful to paper)
             if k > 0 and self.n_resample_iter > 0:
                 for iter_idx in range(self.n_resample_iter):
-                    if self.use_bits:
-                        feature_freqs = self._vectorized_bootstrap_resample(
-                            feature_freqs, iter_idx)
-                        
-                        # Update active_sets from resampled frequencies
-                        active_sets = {}
-                        for encoding in np.nonzero(feature_freqs)[0]:
-                            features = self._decode_features(encoding)
-                            if len(features) == k:
-                                active_sets[features] = feature_freqs[encoding]
-                    else:
-                        active_sets = self._vectorized_bootstrap_resample(
-                            active_sets, iter_idx)
+                    active_sets = self._vectorized_bootstrap_resample(
+                        active_sets, iter_idx)
             
             # Process feature sets in batches
             coef_k, new_sets = self._process_feature_sets_in_batches(
@@ -740,21 +699,8 @@ class RGS(BaseEstimator, RegressorMixin):
             
             # Update feature sets for next iteration - ONLY if not at max features
             if k < self.k_max:
-                # Update feature sets for next iteration
-                if self.use_bits:
-                    # Clear frequencies for features of size k
-                    for encoding in np.nonzero(feature_freqs)[0]:
-                        if self._count_bits(encoding) == k:
-                            feature_freqs[encoding] = 0
-                    
-                    # Update bit array with new frequencies
-                    for M, freq in new_sets.items():
-                        if freq > 0:
-                            encoding = self._encode_features(M)
-                            feature_freqs[encoding] = freq
-                else:
-                    # Update dictionary
-                    feature_sets[k+1] = new_sets
+                # Update dictionary
+                feature_sets[k+1] = new_sets
             
             # Compute final coefficients
             self.coef_.append(coef_k / self.n_estimators)
@@ -762,9 +708,8 @@ class RGS(BaseEstimator, RegressorMixin):
             
             # Memory optimization: clear unnecessary data
             if k >= 2:
-                if not self.use_bits:
-                    # Clear old feature sets to save memory
-                    feature_sets[k-2] = {}
+                # Clear old feature sets to save memory
+                feature_sets[k-2] = {}
             
             # Progress report
             # print(f"Completed k={k}, active sets: {len(active_sets)}, new sets: {len(new_sets)}")
@@ -794,22 +739,7 @@ class RGS(BaseEstimator, RegressorMixin):
         
         return X @ self.coef_[k] + self.intercept_[k]
     
-    # Bit-encoding support methods
-    def _encode_features(self, features):
-        """Encode feature set as a bit vector."""
-        encoding = 0
-        for f in features:
-            encoding |= (1 << f)
-        return encoding
-    
-    def _decode_features(self, encoding):
-        """Decode bit vector to feature set."""
-        return tuple(i for i in range(self.n_features) 
-                    if encoding & (1 << i))
-    
-    def _count_bits(self, encoding):
-        """Count number of set bits (features)."""
-        return bin(encoding).count('1')
+
         
     # @staticmethod
     # def _validate_args(k, alpha, m, n_estimators):
