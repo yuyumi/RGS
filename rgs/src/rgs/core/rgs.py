@@ -507,6 +507,12 @@ class RGS(BaseEstimator, RegressorMixin):
         y_mean = y.mean()
         y_centered = y - y_mean
         
+        # Optimize memory layout for better cache performance (safe approach)
+        if not X_centered.flags['C_CONTIGUOUS']:
+            X_centered = np.ascontiguousarray(X_centered)
+        if not y_centered.flags['C_CONTIGUOUS']:
+            y_centered = np.ascontiguousarray(y_centered)
+        
         # Initialize storage for models
         self.coef_ = [np.zeros(n_features)]
         self.intercept_ = [y_mean]
@@ -663,6 +669,12 @@ class RGS(BaseEstimator, RegressorMixin):
         X_centered = X - X_mean
         y_mean = y.mean()
         y_centered = y - y_mean
+        
+        # Optimize memory layout for better cache performance (safe approach)
+        if not X_centered.flags['C_CONTIGUOUS']:
+            X_centered = np.ascontiguousarray(X_centered)
+        if not y_centered.flags['C_CONTIGUOUS']:
+            y_centered = np.ascontiguousarray(y_centered)
         
         # Pre-compute feature norms using vectorized operations
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
