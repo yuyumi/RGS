@@ -4,6 +4,7 @@ notebooks/.ipynb_checkpoints/
 input_data/*.tsv
 *.csv
 *.png
+*.pdf
 *.xlsx
 *.egg-info/
 *.egg

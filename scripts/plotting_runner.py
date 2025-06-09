@@ -59,7 +59,7 @@ def create_plots_for_result(
             print("Attempting to create MSE vs DF by k plots...")
             
             for sigma in sigma_values:
-                save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.png"
+                save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.pdf"
                 
                 # Call the function with the method filter
                 plot_mse_vs_df_by_k(
@@ -67,7 +67,7 @@ def create_plots_for_result(
                     target_sigma=sigma, 
                     save_path=save_path, 
                     show_std=show_std, 
-                    method_filter=lambda m: m in ['rgs', 'original_gs']
+                    method_filter=lambda m: m in ['rgs', 'original_gs', 'gs']
                 )
                 # Note: MSE vs DF plots don't use global scaling as they have different axis meanings
                 print(f"Created: {save_path.name}")
@@ -101,10 +101,10 @@ def create_plots_for_result(
                         kwargs['method_filter'] = lambda m: m in ['rgs', 'original_gs']
                         return plot_func(*args, **kwargs)
                     
-                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    save_path = figures_dir / f"{plot_name}_{base_name}.pdf"
                     filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 else:
-                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    save_path = figures_dir / f"{plot_name}_{base_name}.pdf"
                     # Add global y-limits if available for this metric
                     metric = extract_metric_from_plot_name(plot_name)
                     if global_ylim_dict and metric in global_ylim_dict:
@@ -141,10 +141,10 @@ def create_plots_for_result(
                         kwargs['method_filter'] = lambda m: m != 'ridge'
                         return plot_func(*args, **kwargs)
                     
-                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.pdf"
                     filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
                 else:
-                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.pdf"
                     # Add global y-limits if available for this metric
                     metric = extract_metric_from_plot_name(plot_name)
                     if global_ylim_dict and metric in global_ylim_dict:
@@ -155,7 +155,7 @@ def create_plots_for_result(
             except Exception as e:
                 print(f"Error creating {plot_name}: {str(e)}")
 
-def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, plot_type: str = 'both', show_std: bool = True, global_scale: bool = True) -> None:
+def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, exclude: Optional[str] = None, plot_type: str = 'both', show_std: bool = True, global_scale: bool = True) -> None:
     """Run plotting for all simulation results matching the pattern."""
     # Get project root directory (two levels up from this script)
     root_dir = Path(__file__).parent.parent
@@ -178,8 +178,19 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
     pattern_str = f'simulation_results_*{pattern}*.csv' if pattern else 'simulation_results_*.csv'
     results_files = list(raw_results_path.glob(pattern_str))
     
+    # Apply exclusion filter if specified
+    if exclude:
+        original_count = len(results_files)
+        exclude_patterns = [pattern.strip() for pattern in exclude.split(',')]
+        results_files = [f for f in results_files if not any(pattern in f.name for pattern in exclude_patterns)]
+        excluded_count = original_count - len(results_files)
+        print(f"Excluded {excluded_count} files containing any of: {exclude_patterns}")
+    
     print(f"Searching in directory: {raw_results_path}")
     print(f"Using pattern: {pattern_str}")
+    if exclude:
+        exclude_patterns = [pattern.strip() for pattern in exclude.split(',')]
+        print(f"Excluding files containing: {exclude_patterns}")
     print(f"Plot type: {plot_type}")
     print(f"Saving figures to: {figures_dir}")
     
@@ -251,6 +262,7 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate plots for RGS simulation results')
     parser.add_argument('--pattern', type=str, help='Pattern to match result files')
+    parser.add_argument('--exclude', type=str, help='Exclude files containing any of these comma-separated patterns (e.g., "nonlinear,cauchy,laplace")')
     parser.add_argument('--results-dir', type=str, default=None,
                       help='Directory containing raw result files (default: PROJECT_ROOT/results/raw)')
     parser.add_argument('--no-std', action='store_false', dest='show_std',
@@ -264,4 +276,4 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    run_plotting(args.results_dir, args.pattern, args.plot_type, args.show_std, args.global_scale)
+    run_plotting(args.results_dir, args.pattern, args.exclude, args.plot_type, args.show_std, args.global_scale)

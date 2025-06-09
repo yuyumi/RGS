@@ -41,6 +41,7 @@ class PlottingConfig:
         'smeared_gs': '#CB4335',
         'base_gs': '#E74C3C',
         'original_gs': '#D35400',
+        'gs': '#D35400',  # Same color as original_gs since they're the same method
         'rgs': '#F8C471'
     }
     
@@ -55,7 +56,7 @@ class PlottingConfig:
         'rie': 'Relative In-sample Error'
     }
     
-    METHODS = ['lasso', 'elastic', 'bagged_gs', 'smeared_gs', 'original_gs', 'rgs']
+    METHODS = ['lasso', 'elastic', 'bagged_gs', 'smeared_gs', 'original_gs', 'gs', 'rgs']
     
     METHOD_LABELS = {
         'lasso': 'Lasso',
@@ -66,6 +67,7 @@ class PlottingConfig:
         'base_rgs': 'Base RGS',
         'base_gs': 'Base GS',
         'original_gs': 'GS',
+        'gs': 'GS',  # Same label as original_gs
         'rgs': 'RGS'
     }
     
@@ -105,6 +107,12 @@ def setup_plot_style():
 def create_figure():
     """Create and return a new figure with standard size."""
     return plt.subplots(figsize=(7, 5))
+
+def _ensure_pdf_extension(save_path: Path) -> Path:
+    """Ensure the save path has a .pdf extension."""
+    if save_path.suffix.lower() != '.pdf':
+        return save_path.with_suffix('.pdf')
+    return save_path
 
 def enhance_log_axis(ax):
     """Apply consistent log axis formatting."""
@@ -255,7 +263,8 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
         ax.grid(True, alpha=0.3)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            pdf_path = _ensure_pdf_extension(save_path)
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             return None
         return fig
@@ -310,7 +319,8 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
         ax.grid(True, alpha=0.3)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            pdf_path = _ensure_pdf_extension(save_path)
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             return None
         return fig
@@ -347,8 +357,8 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
         df_avg = df_numeric.groupby('sigma').mean().reset_index()
         available_methods = []
         
-        # Explicitly filter to only original_gs and rgs methods for MSE vs DF by k plots
-        target_methods = ['original_gs', 'rgs']
+        # Explicitly filter to only original_gs/gs and rgs methods for MSE vs DF by k plots
+        target_methods = ['original_gs', 'gs', 'rgs']
         for method in target_methods:
             mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
             df_cols = [col for col in df_avg.columns if col.startswith(f'df_by_k_{method}_')]
@@ -393,22 +403,41 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
                           marker=marker, s=60, zorder=3, edgecolors='black', linewidths=0.5)
                 
                 # Add k labels for k=1 and multiples of 5
+                # Calculate axis ranges for data coordinate positioning
+                x_range = max(mse_values) - min(mse_values) if mse_values else 1
+                y_range = max(df_values) - min(df_values) if df_values else 1
+                
                 for i, k in enumerate(k_values[:len(mse_values)]):
                     if k == 1:
                         label = 'k=1'
-                    elif k % 5 == 0:
-                        label = str(k)
+                    elif k in [10, 20]:  # Only label k=10 and k=20, skip k=5 and k=15
+                        label = f'k={k}'
                     else:
                         continue
+                    
+                    # Original simple pixel offset positioning
+                    if method in ['gs', 'original_gs']:
+                        # GS labels to the right
+                        label_offset = (8, 3)
+                        label_align = 'left'
+                    elif method == 'rgs':
+                        # RGS labels to the left and lower
+                        label_offset = (-10, -5)
+                        label_align = 'right'
+                    else:
+                        # Default positioning for other methods
+                        label_offset = (0, 6)
+                        label_align = 'center'
                     
                     ax.annotate(
                         label,
                         (mse_values[i], df_values[i]),
                         textcoords="offset points",
-                        xytext=(0, 10),
-                        ha='center',
-                        fontsize=8,
-                        bbox=dict(boxstyle="round,pad=0.2", facecolor='white', alpha=0.7, edgecolor='none')
+                        xytext=label_offset,
+                        ha=label_align,
+                        fontsize=10,
+                        fontweight='bold',
+                        bbox=None
                     )
         
         # Collect all data points for axis limit calculations
@@ -434,12 +463,14 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
         if log_scale_mse:
             ax.set_xscale('log')
         else:
-            # Set x-axis limits with padding to ensure markers are visible
+            # Set x-axis limits with extra padding to ensure labels are visible
             if all_mse_values:
                 x_min, x_max = min(all_mse_values), max(all_mse_values)
                 x_range = x_max - x_min
-                x_padding = x_range * 0.08 if x_range > 0 else x_max * 0.08
-                ax.set_xlim(left=x_min - x_padding, right=x_max + x_padding)
+                # Add extra padding: 12% on left for RGS labels, 6% on right for GS labels
+                left_padding = x_range * 0.12 if x_range > 0 else x_max * 0.12
+                right_padding = x_range * 0.08 if x_range > 0 else x_max * 0.08
+                ax.set_xlim(left=x_min - left_padding, right=x_max + right_padding)
         
         if log_scale_df:
             ax.set_yscale('log')
@@ -457,7 +488,8 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
         ax.grid(True, alpha=0.3)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            pdf_path = _ensure_pdf_extension(save_path)
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             return None
         return fig
@@ -551,7 +583,8 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
                 ax.set_ylim(bottom=min_val - padding, top=max_val + padding)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            pdf_path = _ensure_pdf_extension(save_path)
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             return None
         return fig
@@ -648,7 +681,8 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
                 ax.set_ylim(bottom=y_min - padding, top=y_max + padding)
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            pdf_path = _ensure_pdf_extension(save_path)
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
             return None
         return fig
