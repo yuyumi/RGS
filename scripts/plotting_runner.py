@@ -3,16 +3,16 @@ import json
 import argparse
 from typing import Optional, List, Dict
 
-from rgs_experiments.plotting.plotting import plot_metric
+from rgs_experiments.plotting.plotting import *
 
 def create_plots_for_result(
     results_path: Path,
     figures_dir: Path,
     params_path: Optional[Path] = None,
     show_std: bool = False,
-    plot_type: str = 'both'
+    plot_type: str = 'both'  # Parameter to choose between 'line', 'bar', or 'both'
 ) -> None:
-    """Create all plots for a single simulation result file using unified plot_metric function."""
+    """Create all plots for a single simulation result file."""
     print(f"\nProcessing: {results_path.name} with {plot_type} plots")
     
     # Base name for plot files
@@ -33,80 +33,98 @@ def create_plots_for_result(
         df = pd.read_csv(results_path)
         sigma_values = sorted(df['sigma'].unique())
     
-    # Generate MSE vs DF plots for each sigma value
+    # Generate MSE vs DF plot (only for line plots)
     if plot_type == 'line' or plot_type == 'both':
         try:
-            print("Creating MSE vs DF plots for each sigma...")
+            print("Attempting to create MSE vs DF by k plots...")
             
             for sigma in sigma_values:
-                sigma_str = f"{sigma:.3f}".replace('.', '_')
-                save_path = figures_dir / f"mse_vs_df_sigma_{sigma_str}_{base_name}.png"
+                save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.png"
                 
-                plot_metric(
-                    results_path=results_path,
-                    metric='mse_vs_df',
-                    x_variable='fixed_sigma',
-                    plot_type='scatter_line',
-                    target_sigma=sigma,
-                    log_scale_x=False,
-                    log_scale_y=False,
-                    method_filter=lambda m: m in ['rgs', 'original_gs'],
-                    save_path=save_path
+                # Call the function with the method filter
+                plot_mse_vs_df_by_k(
+                    results_path=results_path, 
+                    target_sigma=sigma, 
+                    save_path=save_path, 
+                    show_std=show_std, 
+                    method_filter=lambda m: m in ['rgs', 'original_gs']
                 )
                 print(f"Created: {save_path.name}")
         except Exception as e:
-            print(f"Error creating mse_vs_df plots: {str(e)}")
+            print(f"Error creating mse_vs_df_by_k plot: {str(e)}")
+            import traceback
+            traceback.print_exc()  # Print the full traceback for debugging
     
-    # Define all plot configurations
-    plot_configs = [
-        # Line plots
-        {'metric': 'mse', 'x_variable': 'variance', 'plot_type': 'line', 'log_scale': False, 'enabled_for': ['line', 'both']},
-        {'metric': 'outsample_mse', 'x_variable': 'variance', 'plot_type': 'line', 'log_scale': False, 'enabled_for': ['line', 'both']},
-        {'metric': 'coef_recovery', 'x_variable': 'variance', 'plot_type': 'line', 'log_scale': False, 'enabled_for': ['line', 'both']},
-        {'metric': 'rte', 'x_variable': 'variance', 'plot_type': 'line', 'log_scale': False, 'enabled_for': ['line', 'both']},
+    # Define plot configurations based on plot_type
+    if plot_type == 'line' or plot_type == 'both':
+        plot_types = {
+            # 'mse_sigma': (plot_mse_by_sigma, {}),
+            # 'df_sigma': (plot_df_by_sigma, {}),
+            # 'insample_sigma': (plot_insample_by_sigma, {}),
+            # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
+            'mse_pve': (plot_mse_by_variance_explained, {}),
+            # 'insample_pve': (plot_insample_by_variance_explained, {}),
+            'outsample_pve': (plot_outsample_mse_by_variance_explained, {}),
+            'coef_recovery_pve': (plot_coef_recovery_by_variance_explained, {}),
+            'rte_pve': (plot_rte_by_variance_explained, {})
+        }
         
-        # Bar plots
-        {'metric': 'mse', 'x_variable': 'variance', 'plot_type': 'bar', 'log_scale': True, 'enabled_for': ['bar', 'both']},
-        {'metric': 'insample', 'x_variable': 'variance', 'plot_type': 'bar', 'log_scale': True, 'enabled_for': ['bar', 'both']},
-        {'metric': 'outsample_mse', 'x_variable': 'variance', 'plot_type': 'bar', 'log_scale': True, 'enabled_for': ['bar', 'both']},
-        {'metric': 'rie', 'x_variable': 'variance', 'plot_type': 'bar', 'log_scale': False, 'enabled_for': ['bar', 'both']},
-        {'metric': 'rte', 'x_variable': 'variance', 'plot_type': 'bar', 'log_scale': False, 'enabled_for': ['bar', 'both']},
-    ]
+        # Generate basic plots
+        for plot_name, (plot_func, plot_kwargs) in plot_types.items():
+            try:
+                # Special case for df plots - exclude Ridge
+                if 'df' in plot_name:
+                    # Create a filtering function
+                    def filtered_plot_func(*args, **kwargs):
+                        # Add method_filter to kwargs
+                        kwargs['method_filter'] = lambda m: m in ['rgs', 'original_gs']
+                        return plot_func(*args, **kwargs)
+                    
+                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
+                else:
+                    save_path = figures_dir / f"{plot_name}_{base_name}.png"
+                    plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
+                
+                print(f"Created: {save_path.name}")
+            except Exception as e:
+                print(f"Error creating {plot_name}: {str(e)}")
     
-    # Generate plots based on configurations
-    for config in plot_configs:
-        if plot_type not in config['enabled_for']:
-            continue
-            
-        try:
-            # Generate filename
-            x_suffix = 'pve' if config['x_variable'] == 'variance' else 'sigma'
-            plot_suffix = f"_{config['plot_type']}" if config['plot_type'] == 'bar' else ""
-            filename = f"{config['metric']}_{x_suffix}{plot_suffix}_{base_name}.png"
-            save_path = figures_dir / filename
-            
-            # Determine method filter for DF-related plots
-            method_filter = None
-            if 'df' in config['metric']:
-                method_filter = lambda m: m in ['rgs', 'original_gs']
-            
-            # Create the plot
-            plot_metric(
-                results_path=results_path,
-                metric=config['metric'],
-                x_variable=config['x_variable'],
-                plot_type=config['plot_type'],
-                show_std=show_std,
-                log_scale=config['log_scale'],
-                method_filter=method_filter,
-                save_path=save_path
-            )
-            
-            print(f"Created: {save_path.name}")
-            
-        except Exception as e:
-            print(f"Error creating {config['metric']} {config['plot_type']} plot: {str(e)}")
-
+    if plot_type == 'bar' or plot_type == 'both':
+        plot_types = {
+            # 'mse_sigma': (barplot_mse_by_sigma, {'log_scale': True}),
+            # 'df_sigma': (barplot_df_by_sigma, {'log_scale': False}),
+            # 'insample_sigma': (barplot_insample_by_sigma, {'log_scale': True}),
+            # 'outsample_sigma': (barplot_outsample_mse_by_sigma, {'log_scale': True}),
+            'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
+            'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
+            'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True}),
+            'rie_pve': (barplot_rie_by_variance_explained, {}),
+            'rte_pve': (barplot_rte_by_variance_explained, {'log_scale': False}),
+            'rie_sigma': (barplot_rie_by_sigma, {'log_scale': False}),
+            'rte_sigma': (barplot_rte_by_sigma, {'log_scale': False})
+        }
+        
+        # Generate basic plots
+        for plot_name, (plot_func, plot_kwargs) in plot_types.items():
+            try:
+                # Special case for df plots - exclude Ridge
+                if 'df' in plot_name:
+                    # Create a filtering function
+                    def filtered_plot_func(*args, **kwargs):
+                        # Add method_filter to kwargs
+                        kwargs['method_filter'] = lambda m: m != 'ridge'
+                        return plot_func(*args, **kwargs)
+                    
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    filtered_plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
+                else:
+                    save_path = figures_dir / f"{plot_name}_bar_{base_name}.png"
+                    plot_func(results_path, save_path=save_path, show_std=show_std, **plot_kwargs)
+                
+                print(f"Created: {save_path.name}")
+            except Exception as e:
+                print(f"Error creating {plot_name}: {str(e)}")
 
 def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, plot_type: str = 'both', show_std: bool = True) -> None:
     """Run plotting for all simulation results matching the pattern."""
@@ -165,7 +183,6 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
             print(f"Error processing {result_file.name}:")
             print(f"Error message: {str(e)}")
             continue
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate plots for RGS simulation results')
