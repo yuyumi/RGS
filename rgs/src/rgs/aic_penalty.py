@@ -27,9 +27,7 @@ def create_aic_scorer(sigma, n, p):
             mse = (error ** 2).mean()
             
             # Compute penalty using current k value
-            # penalty = 2*sigma**2/n*k
-            # penalty = 2/n*k
-            penalty = 0
+            penalty = 2*sigma**2/n*k
             # Return negative since sklearn maximizes scores
             return -(mse + penalty)
         
