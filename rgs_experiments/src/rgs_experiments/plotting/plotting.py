@@ -402,10 +402,44 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
                 ax.scatter(mse_values, df_values, color=PlottingConfig.COLORS[method],
                           marker=marker, s=60, zorder=3, edgecolors='black', linewidths=0.5)
                 
-                # Add k labels for k=1 and multiples of 5
-                # Calculate axis ranges for data coordinate positioning
-                x_range = max(mse_values) - min(mse_values) if mse_values else 1
-                y_range = max(df_values) - min(df_values) if df_values else 1
+        # Collect all points for smart positioning
+        all_points = []  # List of (x, y, method, k_index) for all points
+        
+        for method in available_methods:
+            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
+            k_values = sorted([int(col.split('_')[-1]) for col in mse_cols if int(col.split('_')[-1]) > 0])
+            
+            mse_values, df_values = [], []
+            for k in k_values:
+                mse_col = f'mse_by_k_{method}_{k}'
+                df_col = f'df_by_k_{method}_{k}'
+                
+                if mse_col in df_avg.columns and df_col in df_avg.columns:
+                    mse_val = df_avg[mse_col].values[0]
+                    df_val = df_avg[df_col].values[0]
+                    
+                    if not np.isnan(mse_val) and not np.isnan(df_val):
+                        mse_values.append(mse_val)
+                        df_values.append(df_val)
+                        all_points.append((mse_val, df_val, method, k))
+        
+        # Smart positioning for labels
+        for method in available_methods:
+            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
+            k_values = sorted([int(col.split('_')[-1]) for col in mse_cols if int(col.split('_')[-1]) > 0])
+            
+            mse_values, df_values = [], []
+            for k in k_values:
+                mse_col = f'mse_by_k_{method}_{k}'
+                df_col = f'df_by_k_{method}_{k}'
+                
+                if mse_col in df_avg.columns and df_col in df_avg.columns:
+                    mse_val = df_avg[mse_col].values[0]
+                    df_val = df_avg[df_col].values[0]
+                    
+                    if not np.isnan(mse_val) and not np.isnan(df_val):
+                        mse_values.append(mse_val)
+                        df_values.append(df_val)
                 
                 for i, k in enumerate(k_values[:len(mse_values)]):
                     if k == 1:
@@ -415,19 +449,43 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
                     else:
                         continue
                     
-                    # Original simple pixel offset positioning
-                    if method in ['gs', 'original_gs']:
-                        # GS labels to the right
-                        label_offset = (8, 3)
-                        label_align = 'left'
-                    elif method == 'rgs':
-                        # RGS labels to the left and lower
-                        label_offset = (-10, -5)
-                        label_align = 'right'
-                    else:
-                        # Default positioning for other methods
-                        label_offset = (0, 6)
-                        label_align = 'center'
+                    # Smart positioning based on local point density
+                    current_point = (mse_values[i], df_values[i])
+                    
+                    # Calculate distances to all other points
+                    distances = []
+                    for other_x, other_y, other_method, other_k in all_points:
+                        if (other_x, other_y) != current_point:
+                            dist = np.sqrt((other_x - current_point[0])**2 + (other_y - current_point[1])**2)
+                            distances.append((dist, other_x - current_point[0], other_y - current_point[1]))
+                    
+                    # Find the direction with least nearby points
+                    # Check 8 directions: right, left, up, down, and 4 diagonals
+                    directions = [
+                        (1, 0, 'right', (12, 0), 'left'),     # right
+                        (-1, 0, 'left', (-12, 0), 'right'),   # left
+                        (0, 1, 'up', (0, 12), 'center'),      # up
+                        (0, -1, 'down', (0, -12), 'center'),  # down
+                        (1, 1, 'up-right', (10, 10), 'left'),  # up-right
+                        (-1, 1, 'up-left', (-10, 10), 'right'), # up-left
+                        (1, -1, 'down-right', (10, -10), 'left'), # down-right
+                        (-1, -1, 'down-left', (-10, -10), 'right') # down-left
+                    ]
+                    
+                    # Score each direction based on nearby point density
+                    direction_scores = []
+                    for dx, dy, name, offset, align in directions:
+                        score = 0
+                        for dist, other_dx, other_dy in distances:
+                            if dist < 2.0:  # Only consider nearby points
+                                # Check if other point is in this direction
+                                dot_product = dx * other_dx + dy * other_dy
+                                if dot_product > 0:  # Same general direction
+                                    score -= 1 / (dist + 0.1)  # Penalty for nearby points in this direction
+                        direction_scores.append((score, offset, align))
+                    
+                    # Choose direction with highest score (least negative)
+                    best_score, label_offset, label_align = max(direction_scores, key=lambda x: x[0])
                     
                     ax.annotate(
                         label,
@@ -467,20 +525,22 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
             if all_mse_values:
                 x_min, x_max = min(all_mse_values), max(all_mse_values)
                 x_range = x_max - x_min
-                # Add extra padding: 12% on left for RGS labels, 6% on right for GS labels
-                left_padding = x_range * 0.12 if x_range > 0 else x_max * 0.12
-                right_padding = x_range * 0.08 if x_range > 0 else x_max * 0.08
+                # Add extra padding for smart-positioned labels that can appear in any direction
+                left_padding = x_range * 0.18 if x_range > 0 else x_max * 0.18
+                right_padding = x_range * 0.15 if x_range > 0 else x_max * 0.15
                 ax.set_xlim(left=x_min - left_padding, right=x_max + right_padding)
         
         if log_scale_df:
             ax.set_yscale('log')
         else:
-            # Set y-axis limits with padding to ensure markers are visible  
+            # Set y-axis limits with padding to ensure markers and labels are visible  
             if all_df_values:
                 y_min, y_max = min(all_df_values), max(all_df_values)
                 y_range = y_max - y_min
-                y_padding = y_range * 0.08 if y_range > 0 else y_max * 0.08
-                ax.set_ylim(bottom=y_min - y_padding, top=y_max + y_padding)
+                # Increase top padding for smart-positioned labels that can appear above points
+                bottom_padding = y_range * 0.08 if y_range > 0 else y_max * 0.08
+                top_padding = y_range * 0.15 if y_range > 0 else y_max * 0.15
+                ax.set_ylim(bottom=y_min - bottom_padding, top=y_max + top_padding)
         
         ax.set_xlabel('Mean Square Error (MSE)')
         ax.set_ylabel('Degrees of Freedom (DF)')
