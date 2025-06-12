@@ -26,7 +26,8 @@
             "fixed_design": true
         },
         "banded_params": {
-            "gamma": 0.5
+            "gamma": 0.5,
+            "fixed_design": false
         }
     },
     "model": {

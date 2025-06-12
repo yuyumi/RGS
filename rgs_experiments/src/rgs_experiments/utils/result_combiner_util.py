@@ -12,10 +12,9 @@ def get_user_file_pattern():
     print("Correlation Structure:")
     print("1. Banded")
     print("2. Block") 
-    print("3. Orthogonal")
     
-    corr_choice = input("Enter choice (1-3): ").strip()
-    corr_map = {"1": "banded", "2": "block", "3": "orthogonal"}
+    corr_choice = input("Enter choice (1-2): ").strip()
+    corr_map = {"1": "banded", "2": "block"}
     correlation = corr_map.get(corr_choice, "banded")
     
     print(f"Selected: {correlation}")

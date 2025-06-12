@@ -47,19 +47,16 @@ This guide documents all parameters used in the simulation pipeline and when the
 
 ### Covariance Types and Required Parameters
 
-#### 1. Orthogonal Covariance (`"covariance_type": "orthogonal"`)
-- **No additional parameters required**
-- Generates orthogonal design matrix
-
-#### 2. Banded Covariance (`"covariance_type": "banded"`)
+#### 1. Banded Covariance (`"covariance_type": "banded"`)
 - **Requires**: `banded_params`
 ```json
 "banded_params": {
-    "gamma": 0.5              // Correlation decay parameter (required, 0 <= gamma <= 1)
+    "gamma": 0.5,             // Correlation decay parameter (required, 0 <= gamma <= 1)
+    "fixed_design": false     // Whether to use fixed design matrix (optional, default: true)
 }
 ```
 
-#### 3. Block Covariance (`"covariance_type": "block"`)
+#### 2. Block Covariance (`"covariance_type": "block"`)
 - **Requires**: `block_params`
 ```json
 "block_params": {
@@ -228,7 +225,8 @@ The baseline models (Lasso, Ridge, ElasticNet) use configurable regularization p
         "covariance_type": "banded", 
         "generator_type": "inexact",
         "banded_params": {
-            "gamma": 0.5
+            "gamma": 0.5,
+            "fixed_design": false
         },
         "generator_params": {
             "eta": 0.3

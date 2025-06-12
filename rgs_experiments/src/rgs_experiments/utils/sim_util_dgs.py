@@ -2,7 +2,6 @@ import numpy as np
 from scipy.stats import ortho_group
 
 __all__ = [
-    'generate_orthogonal_X',
     'generate_banded_X',
     'generate_block_X',
     'generate_exact_sparsity_example',
@@ -128,29 +127,32 @@ def _create_fixed_design_matrix(target_covariance, n_train, n_predictors):
     
     return X
 
-def generate_orthogonal_X(n_predictors, n_train, seed=123):
-    """
-    Generate the base design matrix X that will remain fixed across replications.
-    """
-    np.random.seed(seed)
 
-    X = np.random.randn(n_train, n_predictors)
-    Q, R = np.linalg.qr(X)
-    X = Q * np.sqrt(n_train)
-    
-    correlation_matrix = (X.T @ X) / n_train
-    print(f"Matrix is orthogonal: {np.allclose(correlation_matrix, np.eye(n_predictors), atol=1e-10)}")
-    
-    off_diag_mask = ~np.eye(n_predictors, dtype=bool)
-    max_correlation = np.max(np.abs(correlation_matrix[off_diag_mask]))
-    print(f"Maximum absolute off-diagonal correlation: {max_correlation:.2e}")
-    
-    return X
 
-def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
+def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123, fixed_design=True):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
-    Each block is transformed by a different random orthogonal matrix.
+    
+    Parameters:
+    -----------
+    n_predictors : int
+        Number of predictor variables/columns in X
+    n_train : int
+        Number of samples/rows in X
+    gamma : float, default=0.65
+        Correlation decay parameter for AR(1) structure
+    seed : int, default=123
+        Random seed for reproducibility
+    fixed_design : bool, default=True
+        If True: construct X such that X^T X / n = target_covariance (fixed design)
+        If False: draw each row from N(0, target_covariance) (random design)
+        
+    Returns:
+    --------
+    X : ndarray of shape (n_train, n_predictors)
+        Design matrix with AR(1) correlation structure
+    gram_matrix : ndarray of shape (n_predictors, n_predictors)
+        The target correlation matrix
     """
     np.random.seed(seed)
     
@@ -159,13 +161,21 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
     distances = np.abs(indices[:, np.newaxis] - indices)
     gram_matrix = gamma**distances
     
-    # Use helper function to create fixed design matrix
-    X = _create_fixed_design_matrix(gram_matrix, n_train, n_predictors)
+    if fixed_design:
+        # Fixed design: construct X such that X^T X / n = target_covariance
+        X = _create_fixed_design_matrix(gram_matrix, n_train, n_predictors)
+    else:
+        # Random design: draw each row from N(0, target_covariance)
+        X = np.random.multivariate_normal(
+            mean=np.zeros(n_predictors),
+            cov=gram_matrix,
+            size=n_train
+        )
 
-    # Verify centering
+    # Verify centering and covariance structure
+    print(f"Design type: {'Fixed' if fixed_design else 'Random'}")
     print(f"Max column mean: {np.max(np.abs(X.mean(axis=0))):.2e}")
     
-    # Verify covariance structure
     X_centered = X - X.mean(axis=0)
     realized_cov = X_centered.T @ X_centered / (n_train)
     max_diff = np.max(np.abs(realized_cov - gram_matrix))

@@ -57,7 +57,7 @@ python scripts/run_simulation.py --params-dir old_params
 python scripts/plotting_runner.py
 
 # Plot specific results
-python scripts/plotting_runner.py --pattern "orthogonal"
+python scripts/plotting_runner.py --pattern "banded"
 ```
 
 ## Configuration
@@ -67,7 +67,7 @@ python scripts/plotting_runner.py --pattern "orthogonal"
 Create JSON parameter files in `params/` directory. Key parameters:
 
 - **Data generation:**
-  - `covariance_type`: "orthogonal", "banded", "block"
+  - `covariance_type`: "banded", "block"
   - `signal_type`: "exact", "inexact", "nonlinear", "laplace", "cauchy"
   - `n_train`, `n_test`, `n_predictors`: Sample sizes and dimensions
 

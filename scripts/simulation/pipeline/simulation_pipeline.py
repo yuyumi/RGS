@@ -58,10 +58,20 @@ class SimulationPipeline:
             seed=self.params['simulation']['base_seed']
         )
         
+        # Determine design type for logging
+        if self.params['data']['covariance_type'] == 'block':
+            fixed_design = self.params['data']['block_params'].get('fixed_design', True)
+        elif self.params['data']['covariance_type'] == 'banded':
+            fixed_design = self.params['data']['banded_params'].get('fixed_design', True)
+        else:
+            raise ValueError(f"Unknown covariance type: {self.params['data']['covariance_type']}")
+        
         # Check matrix rank and log information
         rank_info = check_matrix_rank(X)
         
         print(f"Design Matrix Information:")
+        print(f"  - Covariance type: {self.params['data']['covariance_type']}")
+        print(f"  - Design type: {'Fixed' if fixed_design else 'Random'}")
         print(f"  - Dimensions: {X.shape}")
         print(f"  - Full rank: {rank_info['is_full_rank']}")
         print(f"  - Rank: {rank_info['rank']} / {rank_info['min_dimension']}")
@@ -97,8 +107,10 @@ class SimulationPipeline:
         # Determine if using fixed design
         if self.params['data']['covariance_type'] == 'block':
             fixed_design = self.params['data']['block_params'].get('fixed_design', True)
+        elif self.params['data']['covariance_type'] == 'banded':
+            fixed_design = self.params['data']['banded_params'].get('fixed_design', True)
         else:
-            fixed_design = True  # Other covariance types use fixed design
+            raise ValueError(f"Unknown covariance type: {self.params['data']['covariance_type']}")
         
         sigmas = get_sigma_list(
             self.params['simulation']['sigma'],
@@ -362,6 +374,19 @@ class SimulationPipeline:
         """
         print("Starting Simulation Pipeline")
         print("=" * 60)
+        
+        # Print simulation configuration
+        print(f"Configuration:")
+        print(f"  - Covariance type: {self.params['data']['covariance_type']}")
+        print(f"  - Generator type: {self.params['data']['generator_type']}")
+        if self.params['data']['covariance_type'] == 'block':
+            fixed_design = self.params['data']['block_params'].get('fixed_design', True)
+        elif self.params['data']['covariance_type'] == 'banded':
+            fixed_design = self.params['data']['banded_params'].get('fixed_design', True)
+        else:
+            raise ValueError(f"Unknown covariance type: {self.params['data']['covariance_type']}")
+        print(f"  - Design type: {'Fixed' if fixed_design else 'Random'}")
+        print(f"  - Simulations: {self.params['simulation']['n_sim']}")
         
         self.start_time = time.time()
         

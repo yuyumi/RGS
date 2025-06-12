@@ -82,7 +82,7 @@ def _validate_data_params(data_params: Dict[str, Any]) -> None:
         raise ValueError("signal_proportion must be between 0 and 1")
     
     # Validate covariance type
-    valid_cov_types = ['orthogonal', 'banded', 'block']
+    valid_cov_types = ['banded', 'block']
     if data_params['covariance_type'] not in valid_cov_types:
         raise ValueError(f"covariance_type must be one of {valid_cov_types}")
     
@@ -106,11 +106,17 @@ def _validate_data_params(data_params: Dict[str, Any]) -> None:
     if data_params['covariance_type'] == 'banded':
         if 'banded_params' not in data_params:
             raise ValueError("banded_params required for banded covariance")
-        if 'gamma' not in data_params['banded_params']:
+        banded_params = data_params['banded_params']
+        if 'gamma' not in banded_params:
             raise ValueError("gamma required in banded_params")
-        gamma = data_params['banded_params']['gamma']
+        gamma = banded_params['gamma']
         if not 0 <= gamma <= 1:
             raise ValueError("gamma must be between 0 and 1")
+        
+        # Validate fixed_design parameter if present
+        if 'fixed_design' in banded_params:
+            if not isinstance(banded_params['fixed_design'], bool):
+                raise ValueError("fixed_design must be a boolean")
     
     if data_params['covariance_type'] == 'block':
         if 'block_params' not in data_params:

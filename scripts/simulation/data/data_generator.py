@@ -10,8 +10,7 @@ from typing import Dict, Any, Tuple, Callable
 
 # Import from the existing rgs_experiments package
 from rgs_experiments.utils.sim_util_dgs import (
-    generate_orthogonal_X,
-    generate_banded_X, 
+    generate_banded_X,
     generate_block_X,
     generate_exact_sparsity_example,
     generate_spaced_sparsity_example,
@@ -52,14 +51,13 @@ class DataGenerator:
         """Set up the design matrix generator function."""
         covariance_type = self.data_params['covariance_type']
         
-        if covariance_type == 'orthogonal':
-            self.design_generator = generate_orthogonal_X
-            self.design_kwargs = {}
-        
-        elif covariance_type == 'banded':
-            gamma = self.data_params['banded_params']['gamma']
+        if covariance_type == 'banded':
+            banded_params = self.data_params['banded_params']
             self.design_generator = generate_banded_X
-            self.design_kwargs = {'gamma': gamma}
+            self.design_kwargs = {
+                'gamma': banded_params['gamma'],
+                'fixed_design': banded_params.get('fixed_design', True)
+            }
         
         elif covariance_type == 'block':
             block_params = self.data_params['block_params']
