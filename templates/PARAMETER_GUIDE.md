@@ -120,9 +120,65 @@ This guide documents all parameters used in the simulation pipeline and when the
     "rgscv": {...},           // RGSCV-specific parameters (optional)
     "bagged_gs": {...},       // Bagged GS parameters (optional)
     "smeared_gs": {...},      // Smeared GS parameters (optional)
-    "baseline": {...}         // Baseline method parameters (optional)
+    "baseline": {             // Baseline method parameters (optional)
+        "cv": 5,              // Cross-validation folds (optional, default: 5)
+        "lasso": {            // Lasso regularization parameters (optional)
+            "alpha_min": -10, // Log10 minimum alpha value (optional, default: -10)
+            "alpha_max": 1,   // Log10 maximum alpha value (optional, default: 1)
+            "n_alphas": 100   // Number of alpha values to test (optional, default: 100)
+        },
+        "ridge": {            // Ridge regularization parameters (optional)
+            "alpha_min": -10, // Log10 minimum alpha value (optional, default: -10)
+            "alpha_max": 10,  // Log10 maximum alpha value (optional, default: 10)
+            "n_alphas": 100   // Number of alpha values to test (optional, default: 100)
+        },
+        "elastic_net": {      // ElasticNet regularization parameters (optional)
+            "alpha_min": -10, // Log10 minimum alpha value (optional, default: -10)
+            "alpha_max": 1,   // Log10 maximum alpha value (optional, default: 1)
+            "n_alphas": 20,   // Number of alpha values to test (optional, default: 20)
+            "l1_ratios": [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0] // L1 mixing ratios (optional)
+        }
+    }
 }
 ```
+
+### Baseline Model Regularization Parameters
+
+The baseline models (Lasso, Ridge, ElasticNet) use configurable regularization parameter grids for hyperparameter search. All parameters are optional with sensible defaults.
+
+#### Lasso Parameters
+```json
+"lasso": {
+    "alpha_min": -10,     // Log10 minimum alpha (creates 10^-10, very small regularization)
+    "alpha_max": 1,       // Log10 maximum alpha (creates 10^1 = 10, strong regularization)  
+    "n_alphas": 100       // Number of alpha values to test (logspace between min/max)
+}
+```
+
+#### Ridge Parameters
+```json
+"ridge": {
+    "alpha_min": -10,     // Log10 minimum alpha (very small regularization)
+    "alpha_max": 10,      // Log10 maximum alpha (very strong regularization)
+    "n_alphas": 100       // Number of alpha values to test
+}
+```
+
+#### ElasticNet Parameters
+```json
+"elastic_net": {
+    "alpha_min": -10,     // Log10 minimum alpha
+    "alpha_max": 1,       // Log10 maximum alpha  
+    "n_alphas": 20,       // Number of alpha values (fewer due to 2D grid with l1_ratios)
+    "l1_ratios": [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]  // L1 penalty mixing ratios
+}
+```
+
+**Notes:**
+- Alpha values are generated using `np.logspace(alpha_min, alpha_max, n_alphas)`
+- Smaller `n_alphas` for ElasticNet reduces computational cost of 2D grid search
+- `l1_ratios` values between 0 and 1: 0=Ridge, 1=Lasso, 0.5=50/50 mix
+- For validation set approach, all combinations are tested; for CV approach, sklearn's built-in CV is used
 
 ## Output Parameters
 

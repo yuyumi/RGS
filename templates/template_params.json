@@ -53,7 +53,23 @@
             }
         },
         "baseline": {
-            "cv": 5
+            "cv": 5,
+            "lasso": {
+                "alpha_min": -10,
+                "alpha_max": 1,
+                "n_alphas": 100
+            },
+            "ridge": {
+                "alpha_min": -10,
+                "alpha_max": 10,
+                "n_alphas": 100
+            },
+            "elastic_net": {
+                "alpha_min": -10,
+                "alpha_max": 1,
+                "n_alphas": 20,
+                "l1_ratios": [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]
+            }
         }
     },
     "output": {

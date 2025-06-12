@@ -43,6 +43,46 @@ class ExperimentOrchestrator:
         # Check validation approach
         self.use_validation_set = params.get('simulation', {}).get('use_validation_set', False)
         
+    def _get_regularization_params(self):
+        """
+        Extract regularization parameters from config with fallbacks to defaults.
+        
+        Returns
+        -------
+        dict
+            Dictionary containing alpha grids and l1 ratios for each model
+        """
+        baseline_params = self.params.get('model', {}).get('baseline', {})
+        
+        # Lasso parameters
+        lasso_params = baseline_params.get('lasso', {})
+        lasso_alpha_min = lasso_params.get('alpha_min', -10)
+        lasso_alpha_max = lasso_params.get('alpha_max', 1)
+        lasso_n_alphas = lasso_params.get('n_alphas', 100)
+        lasso_alphas = np.logspace(lasso_alpha_min, lasso_alpha_max, lasso_n_alphas)
+        
+        # Ridge parameters
+        ridge_params = baseline_params.get('ridge', {})
+        ridge_alpha_min = ridge_params.get('alpha_min', -10)
+        ridge_alpha_max = ridge_params.get('alpha_max', 10)
+        ridge_n_alphas = ridge_params.get('n_alphas', 100)
+        ridge_alphas = np.logspace(ridge_alpha_min, ridge_alpha_max, ridge_n_alphas)
+        
+        # ElasticNet parameters
+        elastic_params = baseline_params.get('elastic_net', {})
+        elastic_alpha_min = elastic_params.get('alpha_min', -10)
+        elastic_alpha_max = elastic_params.get('alpha_max', 1)
+        elastic_n_alphas = elastic_params.get('n_alphas', 20)
+        elastic_alphas = np.logspace(elastic_alpha_min, elastic_alpha_max, elastic_n_alphas)
+        elastic_l1_ratios = elastic_params.get('l1_ratios', [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0])
+        
+        return {
+            'lasso_alphas': lasso_alphas,
+            'ridge_alphas': ridge_alphas,
+            'elastic_alphas': elastic_alphas,
+            'elastic_l1_ratios': elastic_l1_ratios
+        }
+        
     def _setup_cross_validation(self, X_val: Optional[np.ndarray] = None, 
                                y_val: Optional[np.ndarray] = None,
                                sigma: float = None) -> Tuple[int, Any]:
@@ -134,6 +174,9 @@ class ExperimentOrchestrator:
         timing_results = {}
         n_train = len(y_train)
         
+        # Get regularization parameters from config
+        reg_params = self._get_regularization_params()
+        
         def select_model_by_validation(models, params_list):
             """Select best model based on validation performance."""
             val_scores = []
@@ -153,7 +196,7 @@ class ExperimentOrchestrator:
         # Fit Lasso
         start_time = time.time()
         if self.use_validation_set and X_val is not None:
-            alphas = np.logspace(-10, 1, 100)
+            alphas = reg_params['lasso_alphas']
             lasso_models = [Lasso(alpha=alpha, random_state=seed+sim_num) for alpha in alphas]
             lasso, best_alpha = select_model_by_validation(lasso_models, alphas)
         else:
@@ -190,7 +233,7 @@ class ExperimentOrchestrator:
         # Fit Ridge
         start_time = time.time()
         if self.use_validation_set and X_val is not None:
-            alphas = np.logspace(-10, 10, 100)
+            alphas = reg_params['ridge_alphas']
             ridge_models = [Ridge(alpha=alpha) for alpha in alphas]
             ridge, best_alpha = select_model_by_validation(ridge_models, alphas)
         else:
@@ -224,10 +267,10 @@ class ExperimentOrchestrator:
         })
         
         # Fit ElasticNet
-        l1_ratios = [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]
+        l1_ratios = reg_params['elastic_l1_ratios']
         start_time = time.time()
         if self.use_validation_set and X_val is not None:
-            alphas = np.logspace(-10, 1, 20)
+            alphas = reg_params['elastic_alphas']
             elastic_params = [(alpha, l1) for alpha in alphas for l1 in l1_ratios]
             elastic_models = [ElasticNet(alpha=alpha, l1_ratio=l1, random_state=seed+sim_num) 
                              for alpha, l1 in elastic_params]
