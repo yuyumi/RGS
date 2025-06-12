@@ -66,7 +66,8 @@ class DataGenerator:
             self.design_generator = generate_block_X
             self.design_kwargs = {
                 'block_size': block_params['block_size'],
-                'within_correlation': block_params['within_correlation']
+                'within_correlation': block_params['within_correlation'],
+                'fixed_design': block_params.get('fixed_design', True)
             }
         
         else:

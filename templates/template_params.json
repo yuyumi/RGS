@@ -22,7 +22,8 @@
         },
         "block_params": {
             "block_size": 20,
-            "within_correlation": 0.7
+            "within_correlation": 0.7,
+            "fixed_design": true
         },
         "banded_params": {
             "gamma": 0.5

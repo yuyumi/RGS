@@ -18,37 +18,42 @@ def load_params(param_path: Union[str, Path]) -> Dict[str, Any]:
     return params
 
 
-def pve_to_sigma(pve: float, signal_proportion: float, n_predictors: int) -> float:
+def pve_to_sigma(pve: float, signal_strength: float) -> float:
     """
     Convert PVE (Proportion of Variance Explained) to sigma value.
     
-    PVE = (s*p)/(s*p + sigma^2)
-    where s is signal_proportion and p is n_predictors
+    PVE = signal_strength / (signal_strength + sigma^2)
+    where signal_strength is the actual variance of the true signal
     
     Solving for sigma:
-    sigma = sqrt((s*p/PVE) - s*p)
+    sigma = sqrt(signal_strength * (1/PVE - 1))
     
     Parameters
     ----------
     pve : float
         Proportion of variance explained
-    signal_proportion : float
-        Proportion of predictors that are signal
-    n_predictors : int
-        Total number of predictors
+    signal_strength : float
+        Actual variance of the true signal
         
     Returns
     -------
     float
         Corresponding sigma value
     """
-    sp = signal_proportion * n_predictors
-    return np.sqrt((sp/pve) - sp)
+    if pve <= 0 or pve >= 1:
+        raise ValueError(f"PVE must be between 0 and 1, got {pve}")
+    
+    return np.sqrt(signal_strength * (1/pve - 1))
 
 
 def get_sigma_list(sigma_params: Dict[str, Any], 
-                   signal_proportion: float, 
-                   n_predictors: int) -> List[float]:
+                   X: np.ndarray = None,
+                   target_covariance: np.ndarray = None,
+                   signal_proportion: float = None,
+                   generator_type: str = 'exact',
+                   eta: float = 0.5,
+                   seed: int = 123,
+                   fixed_design: bool = True) -> List[float]:
     """
     Get list of sigma values based on parameters.
     
@@ -58,10 +63,20 @@ def get_sigma_list(sigma_params: Dict[str, Any],
         Dictionary containing either:
         - type: "list" and values with list of sigma values
         - type: "pve" and params with num_points, min_pve, max_pve
+    X : ndarray, optional
+        Design matrix (for fixed design)
+    target_covariance : ndarray, optional
+        Target covariance matrix (for random design)
     signal_proportion : float
         Signal proportion (needed for PVE calculation)
-    n_predictors : int
-        Number of predictors (needed for PVE calculation)
+    generator_type : str
+        Type of generator ('exact', 'inexact', 'nonlinear', etc.)
+    eta : float
+        Parameter for inexact/nonlinear generators
+    seed : int
+        Random seed for reproducibility
+    fixed_design : bool
+        Whether using fixed design (True) or random design (False)
         
     Returns
     -------
@@ -69,6 +84,23 @@ def get_sigma_list(sigma_params: Dict[str, Any],
         List of sigma values to use
     """
     if sigma_params['type'] == 'pve':
+        # Import here to avoid circular imports
+        from rgs_experiments.utils.sim_util_dgs import compute_signal_strength, compute_expected_signal_strength
+        
+        # Compute signal strength based on design type
+        if fixed_design:
+            if X is None:
+                raise ValueError("X must be provided for fixed design")
+            signal_strength = compute_signal_strength(
+                X, signal_proportion, generator_type, eta, seed
+            )
+        else:
+            if target_covariance is None:
+                raise ValueError("target_covariance must be provided for random design")
+            signal_strength = compute_expected_signal_strength(
+                target_covariance, signal_proportion, generator_type, eta, seed
+            )
+        
         if sigma_params['style'] == 'list':
             pve_values = sigma_params['values']
         elif sigma_params['style'] == 'range':
@@ -79,7 +111,7 @@ def get_sigma_list(sigma_params: Dict[str, Any],
             )
         else:
             raise ValueError(f"Unknown PVE style: {sigma_params['style']}")
-        return [pve_to_sigma(pve, signal_proportion, n_predictors) 
+        return [pve_to_sigma(pve, signal_strength) 
                 for pve in pve_values]
     elif sigma_params['type'] == 'sigma':
         if sigma_params['style'] == 'list':

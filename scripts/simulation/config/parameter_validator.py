@@ -91,6 +91,17 @@ def _validate_data_params(data_params: Dict[str, Any]) -> None:
     if data_params['generator_type'] not in valid_gen_types:
         raise ValueError(f"generator_type must be one of {valid_gen_types}")
     
+    # Validate generator-specific parameters
+    generators_needing_eta = ['inexact', 'nonlinear']
+    if data_params['generator_type'] in generators_needing_eta:
+        if 'generator_params' not in data_params:
+            raise ValueError(f"generator_params required for generator_type '{data_params['generator_type']}'")
+        if 'eta' not in data_params['generator_params']:
+            raise ValueError(f"eta parameter required in generator_params for generator_type '{data_params['generator_type']}'")
+        eta = data_params['generator_params']['eta']
+        if not 0 <= eta <= 1:
+            raise ValueError("eta must be between 0 and 1")
+    
     # Validate type-specific parameters
     if data_params['covariance_type'] == 'banded':
         if 'banded_params' not in data_params:
@@ -105,8 +116,15 @@ def _validate_data_params(data_params: Dict[str, Any]) -> None:
         if 'block_params' not in data_params:
             raise ValueError("block_params required for block covariance")
         block_params = data_params['block_params']
-        if 'block_size' not in block_params or 'within_correlation' not in block_params:
-            raise ValueError("block_size and within_correlation required in block_params")
+        required_block_keys = ['block_size', 'within_correlation']
+        for key in required_block_keys:
+            if key not in block_params:
+                raise ValueError(f"{key} required in block_params")
+        
+        # Validate fixed_design parameter if present
+        if 'fixed_design' in block_params:
+            if not isinstance(block_params['fixed_design'], bool):
+                raise ValueError("fixed_design must be a boolean")
         
         if data_params['n_predictors'] % block_params['block_size'] != 0:
             raise ValueError("n_predictors must be divisible by block_size")

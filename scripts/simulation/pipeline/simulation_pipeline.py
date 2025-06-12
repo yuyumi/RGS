@@ -78,19 +78,37 @@ class SimulationPipeline:
         
         return X, cov_matrix
     
-    def _get_sigma_values(self) -> List[float]:
+    def _get_sigma_values(self, X: np.ndarray, cov_matrix: np.ndarray) -> List[float]:
         """
         Generate the list of sigma values for the simulation.
+        
+        Parameters
+        ----------
+        X : ndarray
+            Design matrix (for fixed designs)
+        cov_matrix : ndarray
+            Covariance matrix (for random designs)
         
         Returns
         -------
         list
             Sorted list of sigma values
         """
+        # Determine if using fixed design
+        if self.params['data']['covariance_type'] == 'block':
+            fixed_design = self.params['data']['block_params'].get('fixed_design', True)
+        else:
+            fixed_design = True  # Other covariance types use fixed design
+        
         sigmas = get_sigma_list(
             self.params['simulation']['sigma'],
-            self.params['data']['signal_proportion'],
-            self.params['data']['n_predictors']
+            X=X if fixed_design else None,
+            target_covariance=cov_matrix if not fixed_design else None,
+            signal_proportion=self.params['data']['signal_proportion'],
+            generator_type=self.params['data']['generator_type'],
+            eta=self.params['data']['generator_params'].get('eta', 0.5),
+            seed=self.params['simulation']['base_seed'],
+            fixed_design=fixed_design
         )
         sigmas = sorted(sigmas)  # Sort for nice progression in progress bar
         
@@ -353,7 +371,7 @@ class SimulationPipeline:
         
         # Get sigma values
         print("\n2. Computing sigma values...")
-        sigmas = self._get_sigma_values()
+        sigmas = self._get_sigma_values(X, cov_matrix)
         print(f"   Using {len(sigmas)} sigma values: {sigmas}")
         
         # Run experiment grid

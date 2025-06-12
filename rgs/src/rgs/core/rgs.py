@@ -209,8 +209,6 @@ class RGS(BaseEstimator, RegressorMixin):
         """
         if method is None:
             method = self.method
-
-        # print(f"DEBUG: Using method={method}")
             
         if method == 'fs':
             # Forward Selection: normalize by norms
@@ -657,8 +655,6 @@ class RGS(BaseEstimator, RegressorMixin):
         # Validate inputs
         X, y = self._validate_inputs(X, y)
         self.n_samples, self.n_features = X.shape
-
-        # print(f"DEBUG: RGS.fit() - method={self.method}, specialized_path={self.m == self.n_features}")
         
         # Specialized path for m=p, B=1 case
         if self.m == self.n_features:
@@ -751,77 +747,6 @@ class RGS(BaseEstimator, RegressorMixin):
         
         return X @ self.coef_[k] + self.intercept_[k]
     
-
-        
-    # @staticmethod
-    # def _validate_args(k, alpha, m, n_estimators):
-    #     assert isinstance(k, int) and k > 0
-    #     assert isinstance(n_estimators, int) and n_estimators > 0
-    #     assert alpha is None or m is None
-    #     if alpha is not None:
-    #         assert 0 < alpha <= 1
-    #     else:
-    #         assert isinstance(m, int) and m > 0
-
-    # def _validate_training_inputs(self, X, y):
-    #     check_X_y(X, y)
-    #     _, p = X.shape
-    #     assert self.k_max <= p
-    #     if self.m is None:
-    #         self.m = np.ceil(self.alpha * p)
-    #     assert self.m <= p
-    #     if isinstance(X, pd.DataFrame):
-    #         X = X.values
-    #     return X, y
-
-    # def _get_new_feature_sets(self, M, M_comp, fs_values, n_iter, generator):
-    #     """
-    #     Generate new feature sets based on forward selection criterion.
-        
-    #     Parameters:
-    #     -----------
-    #     M : list
-    #         Current feature set
-    #     M_comp : array
-    #         Indices of features not in M
-    #     fs_values : array
-    #         Forward selection criterion values for each feature in M_comp
-    #     n_iter : int
-    #         Number of iterations to perform
-    #     generator : Generator
-    #         Random number generator
-            
-    #     Returns:
-    #     --------
-    #     Counter
-    #         New feature sets with their frequencies
-    #     """
-    #     if len(M_comp) == 0:
-    #         return {}
-    #     # Sample candidate features for each iteration
-    #     n_candidates = min(self.m, len(M_comp))
-    #     if n_candidates == 0:
-    #         return {}
-    #     candidates = np.zeros((n_iter, n_candidates), dtype=int)
-    #     for iter in range(n_iter):
-    #         candidates[iter, :] = generator.choice(range(len(M_comp)), size=n_candidates, replace=False)
-        
-    #     # Select best feature from each candidate subset using forward selection
-    #     candidate_values = fs_values[candidates.flatten()].reshape(n_iter, n_candidates)
-    #     if candidate_values.size == 0:
-    #         return {}
-    #     max_index_in_subset = np.argmax(candidate_values, axis=1)
-    #     psi_vals = M_comp[candidates[range(n_iter), max_index_in_subset]]
-        
-    #     # Count frequencies of selected features
-    #     psi_freqs = np.bincount(psi_vals)
-    #     psi_vals_unique = np.nonzero(psi_freqs)[0]
-        
-    #     # Create new feature sets by adding selected features to M
-    #     M_new_unique = [tuple(sorted(np.append(M, feat))) for feat in psi_vals_unique]
-    #     M_new_freqs = dict(zip(M_new_unique, psi_freqs[psi_vals_unique]))
-        
-    #     return M_new_freqs
 
 class RGSCV(BaseEstimator, RegressorMixin):
     """

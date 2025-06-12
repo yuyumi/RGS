@@ -10,8 +10,123 @@ __all__ = [
     'generate_nonlinear_example',
     'generate_laplace_example',
     'generate_cauchy_example',
-    'generate_spaced_sparsity_example'
+    'generate_spaced_sparsity_example',
+    'compute_signal_strength',
+    'compute_expected_signal_strength'
 ]
+
+# Helper functions to reduce redundancy
+def _construct_beta_vector(p, signal_proportion, generator_type='exact', eta=0.5, seed=123):
+    """
+    Construct coefficient vector beta for different generator types.
+    
+    Parameters:
+    -----------
+    p : int
+        Number of predictors
+    signal_proportion : float
+        Proportion of variables that are signals
+    generator_type : str
+        Type of generator ('exact', 'inexact', 'nonlinear', 'laplace', 'cauchy', 'spaced')
+    eta : float
+        Parameter for inexact/nonlinear generators
+    seed : int
+        Random seed for reproducibility
+    
+    Returns:
+    --------
+    beta : ndarray
+        Coefficient vector
+    """
+    np.random.seed(seed)
+    signals = int(p * signal_proportion)
+    
+    if generator_type in ['exact', 'laplace', 'cauchy']:
+        # Linear: β = [1, 1, ..., 1, 0, 0, ..., 0]
+        beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+        
+    elif generator_type == 'spaced':
+        # Evenly spaced signals
+        beta = np.zeros(p)
+        if signals > 0:
+            if signals == 1:
+                beta[p // 2] = 1
+            elif signals >= p:
+                beta = np.ones(p)
+            else:
+                indices = np.linspace(0, p - 1, signals)
+                indices = np.round(indices).astype(int)
+                beta[indices] = 1
+                
+    elif generator_type == 'inexact':
+        # Exponentially decaying coefficients
+        beta = np.zeros(p)
+        beta[:signals] = 1.0  # Strong signals
+        
+        # Generate random signs for remaining coefficients
+        signs = np.random.choice([-1, 1], size=p-signals)
+        indices = np.arange(p-signals)
+        magnitudes = np.exp(-eta * indices)
+        beta[signals:] = signs * magnitudes
+        
+    elif generator_type == 'nonlinear':
+        # For nonlinear, return the linear component beta
+        beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+        
+    else:
+        raise ValueError(f"Unknown generator_type: {generator_type}")
+    
+    return beta
+
+def _validate_sigma(sigma):
+    """Validate sigma parameter."""
+    if sigma is None:
+        raise ValueError("sigma parameter must be provided")
+
+def _create_fixed_design_matrix(target_covariance, n_train, n_predictors):
+    """
+    Create fixed design matrix from target covariance.
+    
+    Returns:
+    --------
+    X : ndarray
+        Design matrix such that X^T X / n ≈ target_covariance
+    """
+    # Compute eigendecomposition
+    eigenvals, eigenvecs = np.linalg.eigh(target_covariance)
+    
+    if np.any(eigenvals < -1e-10):
+        raise ValueError(f"Correlation matrix has negative eigenvalues: {min(eigenvals):.2e}")
+    
+    # Create base matrix with desired covariance
+    X_base = eigenvecs @ np.diag(np.sqrt(np.abs(eigenvals))) @ eigenvecs.T
+    
+    n_per_batch = n_predictors
+    n_full_repeats = n_train // n_per_batch
+    remainder = n_train % n_per_batch
+    
+    # Create the repeated structure
+    X = np.zeros((n_train, n_predictors))
+    
+    # Fill in full blocks
+    for i in range(n_full_repeats):
+        Q = ortho_group.rvs(n_per_batch)
+        start_idx = i * n_per_batch
+        end_idx = (i + 1) * n_per_batch
+        X[start_idx:end_idx] = Q @ X_base
+    
+    # Handle remainder if any
+    if remainder > 0:
+        Q = ortho_group.rvs(n_per_batch)
+        start_idx = n_full_repeats * n_per_batch
+        X[start_idx:] = (Q @ X_base)[:remainder]
+    
+    X = X - X.mean(axis=0)
+    
+    # Scale to match target covariance
+    X = X * np.sqrt(n_predictors)
+    
+    return X
 
 def generate_orthogonal_X(n_predictors, n_train, seed=123):
     """
@@ -44,44 +159,13 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
     distances = np.abs(indices[:, np.newaxis] - indices)
     gram_matrix = gamma**distances
     
-    # Compute eigendecomposition
-    eigenvals, eigenvecs = np.linalg.eigh(gram_matrix)
-    
-    if np.any(eigenvals < -1e-10):
-        raise ValueError("Correlation matrix has negative eigenvalues")
-    
-    # Create base matrix with desired covariance
-    X_base = eigenvecs @ np.diag(np.sqrt(np.abs(eigenvals))) @ eigenvecs.T
-    
-    n_per_batch = n_predictors
-    n_full_repeats = n_train // n_per_batch
-    remainder = n_train % n_per_batch
-    
-    # Create the repeated structure first
-    X = np.zeros((n_train, n_predictors))
-    
-    # Fill in full blocks
-    for i in range(n_full_repeats):
-        Q = ortho_group.rvs(n_per_batch)
-        start_idx = i * n_per_batch
-        end_idx = (i + 1) * n_per_batch
-        X[start_idx:end_idx] = Q @ X_base
-    
-    # Handle remainder if any
-    if remainder > 0:
-        Q = ortho_group.rvs(n_per_batch)
-        start_idx = n_full_repeats * n_per_batch
-        X[start_idx:] = (Q @ X_base)[:remainder]
-
-    X = X - X.mean(axis=0)
-    
-    # Scale to match target covariance
-    X = X * np.sqrt(n_predictors)
+    # Use helper function to create fixed design matrix
+    X = _create_fixed_design_matrix(gram_matrix, n_train, n_predictors)
 
     # Verify centering
     print(f"Max column mean: {np.max(np.abs(X.mean(axis=0))):.2e}")
     
-    # Instead of just comparing X.T @ X/n to gram_matrix
+    # Verify covariance structure
     X_centered = X - X.mean(axis=0)
     realized_cov = X_centered.T @ X_centered / (n_train)
     max_diff = np.max(np.abs(realized_cov - gram_matrix))
@@ -89,13 +173,10 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123):
     
     return X, gram_matrix
 
-def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123):
+def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123, fixed_design=True):
     """
-    Generate a design matrix X with block correlation structure where columns are grouped
-    by their indices modulo block_size.
-    
-    This implementation follows the same pattern as generate_banded_X, but with a block
-    correlation structure instead of AR(1).
+    Generate a design matrix X with block correlation structure where variables 
+    are grouped by modulo assignment to create evenly distributed blocks.
     
     Parameters:
     -----------
@@ -104,16 +185,21 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     n_train : int
         Number of samples/rows in X
     block_size : int
-        Size of each block. n_predictors must be divisible by block_size
+        Number of variables in each block. n_predictors must be divisible by block_size
     within_correlation : float, default=0.7
         Correlation between variables within the same block
     seed : int, default=123
         Random seed for reproducibility
+    fixed_design : bool, default=True
+        If True: construct X such that X^T X / n = target_covariance (fixed design)
+        If False: draw each row from N(0, target_covariance) (random design)
         
     Returns:
     --------
     X : ndarray of shape (n_train, n_predictors)
         Design matrix with the specified block correlation structure
+    target_covariance : ndarray of shape (n_predictors, n_predictors)
+        The target covariance matrix
     """
     
     np.random.seed(seed)
@@ -122,83 +208,65 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     if n_predictors % block_size != 0:
         raise ValueError("n_predictors must be divisible by block_size")
     
-    # Create correlation matrix
-    gram_matrix = np.zeros((n_predictors, n_predictors))
+    # Calculate number of blocks
+    num_blocks = n_predictors // block_size
+    
+    # Create target covariance matrix
+    target_covariance = np.zeros((n_predictors, n_predictors))
     
     # Fill with block structure - ones on diagonal and within_correlation for same block
+    # Use modulo assignment: variables with same (i % num_blocks) are in same block
     for i in range(n_predictors):
         for j in range(n_predictors):
             if i == j:  # Diagonal
-                gram_matrix[i, j] = 1.0
-            elif i % block_size == j % block_size:  # Same block
-                gram_matrix[i, j] = within_correlation
+                target_covariance[i, j] = 1.0
+            elif i % num_blocks == j % num_blocks:  # Same block (modulo grouping)
+                target_covariance[i, j] = within_correlation
     
-    # Compute eigendecomposition
-    eigenvals, eigenvecs = np.linalg.eigh(gram_matrix)
-    
-    if np.any(eigenvals < -1e-10):
-        raise ValueError(f"Correlation matrix has negative eigenvalues: {min(eigenvals):.2e}")
-    
-    # Create base matrix with desired covariance
-    X_base = eigenvecs @ np.diag(np.sqrt(np.abs(eigenvals))) @ eigenvecs.T
-    
-    n_per_batch = n_predictors
-    n_full_repeats = n_train // n_per_batch
-    remainder = n_train % n_per_batch
-    
-    # Create the repeated structure
-    X = np.zeros((n_train, n_predictors))
-    
-    # Fill in full blocks
-    for i in range(n_full_repeats):
-        Q = ortho_group.rvs(n_per_batch)
-        start_idx = i * n_per_batch
-        end_idx = (i + 1) * n_per_batch
-        X[start_idx:end_idx] = Q @ X_base
-    
-    # Handle remainder if any
-    if remainder > 0:
-        Q = ortho_group.rvs(n_per_batch)
-        start_idx = n_full_repeats * n_per_batch
-        X[start_idx:] = (Q @ X_base)[:remainder]
-    
-    X = X - X.mean(axis=0)
-    
-    # Scale to match target covariance
-    X = X * np.sqrt(n_predictors)
+    if fixed_design:
+        # Fixed design: construct X such that X^T X / n = target_covariance
+        X = _create_fixed_design_matrix(target_covariance, n_train, n_predictors)
+    else:
+        # Random design: draw each row from N(0, target_covariance)
+        X = np.random.multivariate_normal(
+            mean=np.zeros(n_predictors),
+            cov=target_covariance,
+            size=n_train
+        )
 
-    # Verify centering
+    # Verify centering and covariance structure
+    print(f"Design type: {'Fixed' if fixed_design else 'Random'}")
     print(f"Max column mean: {np.max(np.abs(X.mean(axis=0))):.2e}")
     
-    # Instead of just comparing X.T @ X/n to gram_matrix
+    # Compute realized covariance
     X_centered = X - X.mean(axis=0)
     realized_cov = X_centered.T @ X_centered / (n_train)
-    max_diff = np.max(np.abs(realized_cov - gram_matrix))
+    max_diff = np.max(np.abs(realized_cov - target_covariance))
     print(f"Maximum deviation from target in covariance matrix: {max_diff:.2e}")
     
     # Verify block structure
-    for b in range(min(5, block_size)):  # Show just first 5 blocks
-        block_cols = [i for i in range(n_predictors) if i % block_size == b]
+    for b in range(min(5, num_blocks)):  # Show just first 5 blocks
+        block_cols = [i for i in range(n_predictors) if i % num_blocks == b]
         
         # Extract correlation sub-matrix for this block
-        block_gram = realized_cov[np.ix_(block_cols, block_cols)]
+        block_realized = realized_cov[np.ix_(block_cols, block_cols)]
         
         # Calculate mean off-diagonal correlation
-        off_diag = block_gram.copy()
+        off_diag = block_realized.copy()
         np.fill_diagonal(off_diag, 0)  # Zero out diagonal
         avg_corr = np.sum(off_diag) / (len(block_cols) * (len(block_cols) - 1)) if len(block_cols) > 1 else 0
         
-        print(f"Block {b} - Mean correlation: {avg_corr:.6f} (target: {within_correlation:.6f})")
+        print(f"Block {b} (vars {block_cols}) - Mean correlation: {avg_corr:.6f} (target: {within_correlation:.6f})")
     
-    if block_size > 5:
-        print(f"... and {block_size - 5} more blocks with similar structure")
+    if num_blocks > 5:
+        print(f"... and {num_blocks - 5} more blocks with similar structure")
     
     # Find maximum between-block correlation
     max_between = 0
     max_between_idx = None
     for i in range(n_predictors):
         for j in range(i+1, n_predictors):
-            if i % block_size != j % block_size:  # Different blocks
+            if i % num_blocks != j % num_blocks:  # Different blocks (modulo grouping)
                 if abs(realized_cov[i, j]) > max_between:
                     max_between = abs(realized_cov[i, j])
                     max_between_idx = (i, j)
@@ -206,16 +274,15 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
     if max_between_idx:
         print(f"Maximum between-block correlation: {max_between:.6e} at indices {max_between_idx}")
     
-    return X, gram_matrix
+    return X, target_covariance
 
 def generate_exact_sparsity_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with exact sparsity."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
-    n_train,p = X.shape
-    signals = int(p*signal_proportion)
-    beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+    n_train, p = X.shape
     
+    beta = _construct_beta_vector(p, signal_proportion, 'exact', seed=seed)
     y_true = X @ beta
     y = y_true + np.random.normal(0, sigma, n_train)
 
@@ -223,31 +290,11 @@ def generate_exact_sparsity_example(X, signal_proportion, sigma=None, seed=123):
 
 def generate_spaced_sparsity_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with evenly spaced signals across all predictors."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
     n_train, p = X.shape
-    signals = int(p * signal_proportion)
     
-    # Create a beta vector of zeros
-    beta = np.zeros(p)
-    
-    if signals > 0:
-        if signals == 1:
-            # If only one signal, put it in the middle
-            beta[p // 2] = 1
-        elif signals >= p:
-            # If signals >= p, all features are signals
-            beta = np.ones(p)
-        else:
-            # Calculate indices for evenly spaced signals
-            # Use linspace to get exactly 'signals' number of points evenly spaced
-            # between 0 and p-1 (inclusive)
-            indices = np.linspace(0, p - 1, signals)
-            indices = np.round(indices).astype(int)
-            
-            # Set the signal values to 1 at the calculated indices
-            beta[indices] = 1
-    
+    beta = _construct_beta_vector(p, signal_proportion, 'spaced', seed=seed)
     y_true = X @ beta
     y = y_true + np.random.normal(0, sigma, n_train)
 
@@ -255,25 +302,11 @@ def generate_spaced_sparsity_example(X, signal_proportion, sigma=None, seed=123)
 
 def generate_inexact_sparsity_example(X, signal_proportion, sigma=None, eta=0.5, seed=123):
     """Generate example with inexact sparsity."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
     n_train, p = X.shape
-    signals = int(p*signal_proportion)
     
-    # Create exponentially decaying coefficients after first few
-    beta = np.zeros(p)
-    beta[:signals] = 1.0  # Strong signals
-    
-    # Generate random signs for remaining coefficients
-    signs = np.random.choice([-1, 1], size=p-signals)
-    
-    # Create exponentially decaying magnitudes
-    indices = np.arange(p-signals)
-    magnitudes = np.exp(-eta * indices)
-    
-    # Combine signs and magnitudes for remaining coefficients
-    beta[signals:] = signs * magnitudes
-    
+    beta = _construct_beta_vector(p, signal_proportion, 'inexact', eta=eta, seed=seed)
     y_true = X @ beta
     y = y_true + np.random.normal(0, sigma, n_train)
     
@@ -281,13 +314,13 @@ def generate_inexact_sparsity_example(X, signal_proportion, sigma=None, eta=0.5,
 
 def generate_nonlinear_example(X, signal_proportion, sigma=None, eta=0.5, seed=123):
     """Generate example with nonlinear components."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
-    n_train,p = X.shape
-    signals = int(p*signal_proportion)
+    n_train, p = X.shape
+    signals = int(p * signal_proportion)
     
     # Linear component
-    beta_linear = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+    beta_linear = _construct_beta_vector(p, signal_proportion, 'nonlinear', seed=seed)
     linear_signal = X @ beta_linear
     
     # Nonlinear component using interactions and quadratic terms
@@ -309,12 +342,11 @@ def generate_nonlinear_example(X, signal_proportion, sigma=None, eta=0.5, seed=1
 
 def generate_laplace_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with Laplace noise."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
-    n_train,p = X.shape
-    signals = int(p*signal_proportion)
+    n_train, p = X.shape
     
-    beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+    beta = _construct_beta_vector(p, signal_proportion, 'laplace', seed=seed)
     y_true = X @ beta
     
     # Generate Laplace noise (scale = sigma/sqrt(2) to match N(0,sigma^2) variance)
@@ -325,12 +357,11 @@ def generate_laplace_example(X, signal_proportion, sigma=None, seed=123):
 
 def generate_cauchy_example(X, signal_proportion, sigma=None, seed=123):
     """Generate example with Cauchy noise."""
-    assert sigma is not None, "sigma parameter must be provided"
+    _validate_sigma(sigma)
     np.random.seed(seed)
-    n_train,p = X.shape
-    signals = int(p*signal_proportion)
+    n_train, p = X.shape
     
-    beta = np.concatenate([np.full(signals, 1), np.zeros(p-signals)])
+    beta = _construct_beta_vector(p, signal_proportion, 'cauchy', seed=seed)
     y_true = X @ beta
     
     # Generate Cauchy noise
@@ -338,3 +369,131 @@ def generate_cauchy_example(X, signal_proportion, sigma=None, seed=123):
     y = y_true + cauchy_noise
     
     return X, y, y_true, beta, p, sigma
+
+def compute_signal_strength(X, signal_proportion, generator_type='exact', eta=0.5, seed=123):
+    """
+    Compute the actual signal strength (variance of true signal) for different generator types.
+    
+    This function computes the true signal strength that would be generated by the 
+    data generation functions, allowing for proper SNR and PVE calculations.
+    
+    Parameters:
+    -----------
+    X : ndarray
+        Design matrix
+    signal_proportion : float
+        Proportion of variables that are signals
+    generator_type : str
+        Type of generator ('exact', 'inexact', 'nonlinear', 'laplace', 'cauchy', 'spaced')
+    eta : float
+        Parameter for inexact/nonlinear generators
+    seed : int
+        Random seed for reproducibility
+    
+    Returns:
+    --------
+    signal_strength : float
+        Variance of the true signal (E[y_true^2] - E[y_true]^2)
+    """
+    np.random.seed(seed)
+    n_train, p = X.shape
+    signals = int(p * signal_proportion)
+    
+    if generator_type == 'nonlinear':
+        # Special handling for nonlinear case
+        beta_linear = _construct_beta_vector(p, signal_proportion, 'nonlinear', seed=seed)
+        linear_signal = X @ beta_linear
+        
+        # Nonlinear component using interactions and quadratic terms
+        X_active = X[:, :signals//2]
+        quad_terms = X_active**2
+        
+        # Create pairwise interactions (match the current implementation)
+        interactions = np.zeros(n_train)
+        for i in range(min(4, signals//2)):  # Ensure we don't exceed available variables
+            for j in range(i+1, min(5, signals//2)):
+                if j < X_active.shape[1]:  # Additional safety check
+                    interactions += X_active[:, i] * X_active[:, j]
+        
+        # Combine linear and nonlinear components
+        nonlinear_signal = (quad_terms.sum(axis=1) + interactions) / np.sqrt(p)
+        y_true = (1 - eta) * linear_signal + eta * nonlinear_signal
+        
+    else:
+        # For all other generator types, use the helper function
+        beta = _construct_beta_vector(p, signal_proportion, generator_type, eta=eta, seed=seed)
+        y_true = X @ beta
+    
+    # Compute signal strength as variance of true signal
+    signal_strength = np.var(y_true, ddof=1)  # Using sample variance
+    
+    return signal_strength
+
+def compute_expected_signal_strength(target_covariance, signal_proportion, generator_type='exact', eta=0.5, seed=123):
+    """
+    Compute the expected signal strength for random designs using the population covariance matrix.
+    
+    For random designs, we use the target covariance matrix directly rather than a realized design matrix.
+    
+    Parameters:
+    -----------
+    target_covariance : ndarray
+        Target population covariance matrix
+    signal_proportion : float
+        Proportion of variables that are signals
+    generator_type : str
+        Type of generator ('exact', 'inexact', 'nonlinear', 'laplace', 'cauchy', 'spaced')
+    eta : float
+        Parameter for inexact/nonlinear generators
+    seed : int
+        Random seed for reproducibility
+    
+    Returns:
+    --------
+    expected_signal_strength : float
+        Expected variance of the true signal (β^T Σ β)
+    """
+    np.random.seed(seed)
+    p = target_covariance.shape[0]
+    signals = int(p * signal_proportion)
+    
+    if generator_type == 'nonlinear':
+        # For nonlinear case with random design, use Monte Carlo estimation
+        # The analytical computation is extremely complex due to higher-order moments
+        # of multivariate normal distributions. Monte Carlo gives reliable results.
+        
+        # Generate a small number of realizations to estimate expected signal strength
+        np.random.seed(seed)
+        n_monte_carlo = 50  # Reasonable number for stable estimates
+        signal_strengths = []
+        
+        for i in range(n_monte_carlo):
+            # Generate random design matrix with target covariance
+            from scipy.stats import multivariate_normal
+            # Use a reasonable sample size for signal strength estimation
+            n_samples = max(1000, 10 * p)  
+            X_sample = multivariate_normal.rvs(
+                mean=np.zeros(p),
+                cov=target_covariance,
+                size=n_samples,
+                random_state=seed + i
+            )
+            
+            # Compute signal strength for this realization
+            strength = compute_signal_strength(
+                X_sample, signal_proportion, generator_type, eta, seed
+            )
+            signal_strengths.append(strength)
+        
+        # Return the average signal strength
+        expected_signal_strength = np.mean(signal_strengths)
+        return expected_signal_strength
+        
+    else:
+        # For all other generator types, use the helper function
+        beta = _construct_beta_vector(p, signal_proportion, generator_type, eta=eta, seed=seed)
+    
+    # For linear cases, expected signal strength is β^T Σ β
+    expected_signal_strength = beta.T @ target_covariance @ beta
+    
+    return expected_signal_strength

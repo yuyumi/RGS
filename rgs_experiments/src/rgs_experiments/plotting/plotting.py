@@ -167,9 +167,8 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
     # Prepare all new columns at once to avoid fragmentation
     new_columns = {}
     
-    # Add SNR calculation (same as original)
-    norm_beta_squared = 10.0  # β^T Σβ = 10 based on setup
-    new_columns['snr'] = norm_beta_squared / (df['sigma']**2)
+    # Add SNR calculation using provided signal strength
+    new_columns['snr'] = norm_beta / (df['sigma']**2)
     
     # Calculate RIE if needed
     if metric == 'rie':
@@ -330,10 +329,22 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
         plt.close()
         return None
 
+
+
+
+
 def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Optional[Path] = None,
                        show_std: bool = False, log_scale_mse: bool = False, log_scale_df: bool = False,
-                       sigma_tolerance: float = 1e-6, method_filter: Optional[callable] = None) -> Optional[plt.Figure]:
-    """Plot MSE vs DF for each method's k progression at target sigma."""
+                       sigma_tolerance: float = 1e-6, method_filter: Optional[callable] = None,
+                       labels: Optional[Dict[str, List[int]]] = None) -> Optional[plt.Figure]:
+    """Plot MSE vs DF for each method's k progression at target sigma.
+    
+    Args:
+        labels: Optional dict mapping method names to lists of k values to label.
+                Method names should be display names like 'RGS', 'GS'. 
+                Example: {'RGS': [1, 20], 'GS': [1, 10, 20]}
+                If None, defaults to labeling k=1, 10, 20 for all methods.
+    """
     try:
         df = pd.read_csv(results_path)
         # Convert columns to numeric, keeping non-numeric columns as-is
@@ -372,17 +383,42 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
             print(f"No methods with k-specific data found")
             return None
         
+        # Set up labels mapping
+        if labels is None:
+            # Default: label k=1, 10, 20 for all methods
+            default_labels = [1, 10, 20]
+            labels_to_use = {}
+            for method in available_methods:
+                method_display_name = PlottingConfig.get_method_label(method)
+                labels_to_use[method] = default_labels
+        else:
+            # Convert display names to internal method names
+            labels_to_use = {}
+            for display_name, k_list in labels.items():
+                # Map display names to internal method names
+                for method in available_methods:
+                    if PlottingConfig.get_method_label(method) == display_name:
+                        labels_to_use[method] = k_list
+                        break
+            
+            # For methods not specified in labels, use empty list (no labels)
+            for method in available_methods:
+                if method not in labels_to_use:
+                    labels_to_use[method] = []
+        
         fig, ax = create_figure()
         setup_plot_style()
         
         method_markers = {'lasso': 'o', 'elastic': 's', 'bagged_gs': 'v', 
                          'smeared_gs': '^', 'original_gs': 'D', 'rgs': '*'}
         
+        # First pass: collect all data points for smart positioning
+        all_method_data = {}
         for method in available_methods:
             mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
             k_values = sorted([int(col.split('_')[-1]) for col in mse_cols if int(col.split('_')[-1]) > 0])
             
-            mse_values, df_values = [], []
+            mse_values, df_values, valid_k_values = [], [], []
             for k in k_values:
                 mse_col = f'mse_by_k_{method}_{k}'
                 df_col = f'df_by_k_{method}_{k}'
@@ -394,109 +430,343 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
                     if not np.isnan(mse_val) and not np.isnan(df_val):
                         mse_values.append(mse_val)
                         df_values.append(df_val)
+                        valid_k_values.append(k)
             
             if mse_values and df_values:
-                marker = method_markers.get(method, 'o')
-                ax.plot(mse_values, df_values, '-', color=PlottingConfig.COLORS[method],
-                       linewidth=1.5, label=PlottingConfig.get_method_label(method))
-                ax.scatter(mse_values, df_values, color=PlottingConfig.COLORS[method],
-                          marker=marker, s=60, zorder=3, edgecolors='black', linewidths=0.5)
-                
-        # Collect all points for smart positioning
-        all_points = []  # List of (x, y, method, k_index) for all points
-        
+                all_method_data[method] = {
+                    'mse_values': mse_values,
+                    'df_values': df_values,
+                    'k_values': valid_k_values
+                }
+
+        # Second pass: plot and add smart labels
         for method in available_methods:
-            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
-            k_values = sorted([int(col.split('_')[-1]) for col in mse_cols if int(col.split('_')[-1]) > 0])
+            if method not in all_method_data:
+                continue
+                
+            data = all_method_data[method]
+            mse_values = data['mse_values']
+            df_values = data['df_values']
+            k_values = data['k_values']
             
-            mse_values, df_values = [], []
-            for k in k_values:
-                mse_col = f'mse_by_k_{method}_{k}'
-                df_col = f'df_by_k_{method}_{k}'
-                
-                if mse_col in df_avg.columns and df_col in df_avg.columns:
-                    mse_val = df_avg[mse_col].values[0]
-                    df_val = df_avg[df_col].values[0]
-                    
-                    if not np.isnan(mse_val) and not np.isnan(df_val):
-                        mse_values.append(mse_val)
-                        df_values.append(df_val)
-                        all_points.append((mse_val, df_val, method, k))
-        
-        # Smart positioning for labels
-        for method in available_methods:
-            mse_cols = [col for col in df_avg.columns if col.startswith(f'mse_by_k_{method}_')]
-            k_values = sorted([int(col.split('_')[-1]) for col in mse_cols if int(col.split('_')[-1]) > 0])
+            marker = method_markers.get(method, 'o')
+            ax.plot(mse_values, df_values, '-', color=PlottingConfig.COLORS[method],
+                   linewidth=1.5, label=PlottingConfig.get_method_label(method))
+            ax.scatter(mse_values, df_values, color=PlottingConfig.COLORS[method],
+                      marker=marker, s=60, zorder=3, edgecolors='black', linewidths=0.5)
             
-            mse_values, df_values = [], []
-            for k in k_values:
-                mse_col = f'mse_by_k_{method}_{k}'
-                df_col = f'df_by_k_{method}_{k}'
+            # Add k labels with smart positioning
+            for i, k in enumerate(k_values):
+                # Check if this k value should be labeled for this method
+                if k not in labels_to_use.get(method, []):
+                    continue
                 
-                if mse_col in df_avg.columns and df_col in df_avg.columns:
-                    mse_val = df_avg[mse_col].values[0]
-                    df_val = df_avg[df_col].values[0]
+                label = f'k={k}'
+                
+                current_point = (mse_values[i], df_values[i])
+                
+                # Calculate global data ranges for crowding detection
+                all_mse_vals = []
+                all_df_vals = []
+                for method_data in all_method_data.values():
+                    all_mse_vals.extend(method_data['mse_values'])
+                    all_df_vals.extend(method_data['df_values'])
+                
+                global_mse_range = max(all_mse_vals) - min(all_mse_vals) if len(all_mse_vals) > 1 else max(all_mse_vals)
+                global_df_range = max(all_df_vals) - min(all_df_vals) if len(all_df_vals) > 1 else max(all_df_vals)
+                
+                # Function to calculate line curvature at a point
+                def calculate_curvature(point_idx, mse_vals, df_vals):
+                    """Calculate curvature at a point using neighboring points."""
+                    if point_idx == 0 or point_idx == len(mse_vals) - 1:
+                        return 0  # No curvature at endpoints
                     
-                    if not np.isnan(mse_val) and not np.isnan(df_val):
-                        mse_values.append(mse_val)
-                        df_values.append(df_val)
+                    # Get three consecutive points
+                    p1 = (mse_vals[point_idx - 1], df_vals[point_idx - 1])
+                    p2 = (mse_vals[point_idx], df_vals[point_idx])
+                    p3 = (mse_vals[point_idx + 1], df_vals[point_idx + 1])
+                    
+                    # Calculate vectors
+                    v1 = (p2[0] - p1[0], p2[1] - p1[1])
+                    v2 = (p3[0] - p2[0], p3[1] - p2[1])
+                    
+                    # Normalize by data ranges to make curvature scale-invariant
+                    v1_norm = (v1[0] / global_mse_range, v1[1] / global_df_range)
+                    v2_norm = (v2[0] / global_mse_range, v2[1] / global_df_range)
+                    
+                    # Calculate angle change (curvature indicator)
+                    dot_product = v1_norm[0] * v2_norm[0] + v1_norm[1] * v2_norm[1]
+                    v1_mag = (v1_norm[0]**2 + v1_norm[1]**2)**0.5
+                    v2_mag = (v2_norm[0]**2 + v2_norm[1]**2)**0.5
+                    
+                    if v1_mag == 0 or v2_mag == 0:
+                        return 0
+                    
+                    cos_angle = dot_product / (v1_mag * v2_mag)
+                    cos_angle = max(-1, min(1, cos_angle))  # Clamp to valid range
+                    
+                    # Return angle change (higher = more curvature)
+                    return abs(np.arccos(cos_angle))
                 
-                for i, k in enumerate(k_values[:len(mse_values)]):
-                    if k == 1:
-                        label = 'k=1'
-                    elif k in [10, 20]:  # Only label k=10 and k=20, skip k=5 and k=15
-                        label = f'k={k}'
+                def get_perpendicular_offset(point_idx, mse_vals, df_vals, base_distance=12):
+                    """Calculate perpendicular offset based on local line direction."""
+                    if len(mse_vals) < 2:
+                        return (base_distance, 0)
+                    
+                    # Calculate local line direction
+                    if point_idx == 0:
+                        # Use direction to next point
+                        dx = mse_vals[1] - mse_vals[0]
+                        dy = df_vals[1] - df_vals[0]
+                    elif point_idx == len(mse_vals) - 1:
+                        # Use direction from previous point
+                        dx = mse_vals[-1] - mse_vals[-2]
+                        dy = df_vals[-1] - df_vals[-2]
                     else:
-                        continue
+                        # Use average direction of neighboring segments
+                        dx = (mse_vals[point_idx + 1] - mse_vals[point_idx - 1]) / 2
+                        dy = (df_vals[point_idx + 1] - df_vals[point_idx - 1]) / 2
                     
-                    # Smart positioning based on local point density
-                    current_point = (mse_values[i], df_values[i])
+                    # Normalize direction vector
+                    length = (dx**2 + dy**2)**0.5
+                    if length == 0:
+                        return (base_distance, 0)
                     
-                    # Calculate distances to all other points
-                    distances = []
-                    for other_x, other_y, other_method, other_k in all_points:
-                        if (other_x, other_y) != current_point:
-                            dist = np.sqrt((other_x - current_point[0])**2 + (other_y - current_point[1])**2)
-                            distances.append((dist, other_x - current_point[0], other_y - current_point[1]))
+                    dx_norm = dx / length
+                    dy_norm = dy / length
                     
-                    # Find the direction with least nearby points
-                    # Check 8 directions: right, left, up, down, and 4 diagonals
-                    directions = [
-                        (1, 0, 'right', (12, 0), 'left'),     # right
-                        (-1, 0, 'left', (-12, 0), 'right'),   # left
-                        (0, 1, 'up', (0, 12), 'center'),      # up
-                        (0, -1, 'down', (0, -12), 'center'),  # down
-                        (1, 1, 'up-right', (10, 10), 'left'),  # up-right
-                        (-1, 1, 'up-left', (-10, 10), 'right'), # up-left
-                        (1, -1, 'down-right', (10, -10), 'left'), # down-right
-                        (-1, -1, 'down-left', (-10, -10), 'right') # down-left
-                    ]
+                    # Get perpendicular vector (rotate 90 degrees)
+                    perp_x = -dy_norm
+                    perp_y = dx_norm
                     
-                    # Score each direction based on nearby point density
-                    direction_scores = []
-                    for dx, dy, name, offset, align in directions:
-                        score = 0
-                        for dist, other_dx, other_dy in distances:
-                            if dist < 2.0:  # Only consider nearby points
-                                # Check if other point is in this direction
-                                dot_product = dx * other_dx + dy * other_dy
-                                if dot_product > 0:  # Same general direction
-                                    score -= 1 / (dist + 0.1)  # Penalty for nearby points in this direction
-                        direction_scores.append((score, offset, align))
+                    # Convert to pixel offset
+                    return (perp_x * base_distance, perp_y * base_distance)
+                
+                # Curvature-aware positioning with hierarchical strategy
+                if method in ['gs', 'original_gs']:
+                    # Default: GS labels to the right
+                    default_side = 'right'
+                    base_offset = (12, 0)
                     
-                    # Choose direction with highest score (least negative)
-                    best_score, label_offset, label_align = max(direction_scores, key=lambda x: x[0])
+                    # Special handling for k=1 (keep it simple)
+                    if k == 1:
+                        label_offset = base_offset
+                        label_align = 'left'
+                    else:
+                        # Step 1: Check curvature
+                        curvature = calculate_curvature(i, mse_values, df_values)
+                        high_curvature = curvature > 0.3  # Lower threshold for more sensitive detection
+                        
+                        current_side = default_side
+                        
+                        # Step 1: If high curvature, find the side with more clear space
+                        if high_curvature:
+                            # Calculate which side has more clear space
+                            if i > 0 and i < len(mse_values) - 1:
+                                # Get the three points
+                                p1 = (mse_values[i-1], df_values[i-1])
+                                p2 = (mse_values[i], df_values[i])
+                                p3 = (mse_values[i+1], df_values[i+1])
+                                
+                                # Calculate directions of incoming and outgoing line segments
+                                incoming_dir = (p2[0] - p1[0], p2[1] - p1[1])
+                                outgoing_dir = (p3[0] - p2[0], p3[1] - p2[1])
+                                
+                                # Normalize directions
+                                incoming_len = (incoming_dir[0]**2 + incoming_dir[1]**2)**0.5
+                                outgoing_len = (outgoing_dir[0]**2 + outgoing_dir[1]**2)**0.5
+                                
+                                if incoming_len > 0 and outgoing_len > 0:
+                                    incoming_norm = (incoming_dir[0]/incoming_len, incoming_dir[1]/incoming_len)
+                                    outgoing_norm = (outgoing_dir[0]/outgoing_len, outgoing_dir[1]/outgoing_len)
+                                    
+                                    # Calculate potential label positions (left and right of point)
+                                    left_pos = (p2[0] - 0.05 * global_mse_range, p2[1])
+                                    right_pos = (p2[0] + 0.05 * global_mse_range, p2[1])
+                                    
+                                    # Calculate distance from label positions to line segments
+                                    def distance_to_line_segment(point, seg_start, seg_end):
+                                        # Distance from point to line segment
+                                        seg_vec = (seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+                                        point_vec = (point[0] - seg_start[0], point[1] - seg_start[1])
+                                        
+                                        seg_len_sq = seg_vec[0]**2 + seg_vec[1]**2
+                                        if seg_len_sq == 0:
+                                            return ((point[0] - seg_start[0])**2 + (point[1] - seg_start[1])**2)**0.5
+                                        
+                                        t = max(0, min(1, (point_vec[0]*seg_vec[0] + point_vec[1]*seg_vec[1]) / seg_len_sq))
+                                        projection = (seg_start[0] + t*seg_vec[0], seg_start[1] + t*seg_vec[1])
+                                        
+                                        return ((point[0] - projection[0])**2 + (point[1] - projection[1])**2)**0.5
+                                    
+                                    # Calculate clearance for left and right positions against ALL line segments
+                                    left_clearances = []
+                                    right_clearances = []
+                                    
+                                    # Check against all line segments in the curve
+                                    for j in range(len(mse_values) - 1):
+                                        seg_start = (mse_values[j], df_values[j])
+                                        seg_end = (mse_values[j + 1], df_values[j + 1])
+                                        
+                                        left_clearances.append(distance_to_line_segment(left_pos, seg_start, seg_end))
+                                        right_clearances.append(distance_to_line_segment(right_pos, seg_start, seg_end))
+                                    
+                                    # Use the minimum clearance (closest approach to any segment)
+                                    left_clearance = min(left_clearances) if left_clearances else 0
+                                    right_clearance = min(right_clearances) if right_clearances else 0
+                                    
+                                    # Choose the side with more clearance
+                                    if right_clearance > left_clearance:
+                                        current_side = 'right'
+                                    else:
+                                        current_side = 'left'
+                                else:
+                                    # Fallback if we can't calculate directions
+                                    current_side = 'left'  # Swap from default
+                            else:
+                                current_side = 'left'  # Default swap for edge cases
+                        
+                        # Step 2: Use adaptive positioning based on line direction
+                        if high_curvature:
+                            perp_offset = get_perpendicular_offset(i, mse_values, df_values, 12)
+                            if current_side == 'left':
+                                label_offset = (-abs(perp_offset[0]), perp_offset[1])
+                                label_align = 'right'
+                            else:
+                                label_offset = (abs(perp_offset[0]), perp_offset[1])
+                                label_align = 'left'
+                        else:
+                            # Normal positioning
+                            if current_side == 'left':
+                                label_offset = (-12, 0)
+                                label_align = 'right'
+                            else:
+                                label_offset = (12, 0)
+                                label_align = 'left'
+                        
+                        # Step 3: If still very high curvature, move further away
+                        if curvature > 1.0:  # Very high curvature threshold
+                            label_offset = (label_offset[0] * 1.5, label_offset[1] * 1.5)
+                        
+                elif method == 'rgs':
+                    # Default: RGS labels to the left
+                    default_side = 'left'
                     
-                    ax.annotate(
-                        label,
-                        (mse_values[i], df_values[i]),
-                        textcoords="offset points",
-                        xytext=label_offset,
-                        ha=label_align,
-                        fontsize=10,
-                        fontweight='bold',
-                        bbox=None
-                    )
+                    # Special handling for k=1 (keep it lower as requested)
+                    if k == 1:
+                        label_offset = (-12, -8)
+                        label_align = 'right'
+                    else:
+                        # Step 1: Check curvature
+                        curvature = calculate_curvature(i, mse_values, df_values)
+                        high_curvature = curvature > 0.3  # Lower threshold for more sensitive detection
+                        
+                        current_side = default_side
+                        
+                        # Step 1: If high curvature, find the side with more clear space
+                        if high_curvature:
+                            # Calculate which side has more clear space
+                            if i > 0 and i < len(mse_values) - 1:
+                                # Get the three points
+                                p1 = (mse_values[i-1], df_values[i-1])
+                                p2 = (mse_values[i], df_values[i])
+                                p3 = (mse_values[i+1], df_values[i+1])
+                                
+                                # Calculate directions of incoming and outgoing line segments
+                                incoming_dir = (p2[0] - p1[0], p2[1] - p1[1])
+                                outgoing_dir = (p3[0] - p2[0], p3[1] - p2[1])
+                                
+                                # Normalize directions
+                                incoming_len = (incoming_dir[0]**2 + incoming_dir[1]**2)**0.5
+                                outgoing_len = (outgoing_dir[0]**2 + outgoing_dir[1]**2)**0.5
+                                
+                                if incoming_len > 0 and outgoing_len > 0:
+                                    incoming_norm = (incoming_dir[0]/incoming_len, incoming_dir[1]/incoming_len)
+                                    outgoing_norm = (outgoing_dir[0]/outgoing_len, outgoing_dir[1]/outgoing_len)
+                                    
+                                    # Calculate potential label positions (left and right of point)
+                                    left_pos = (p2[0] - 0.05 * global_mse_range, p2[1])
+                                    right_pos = (p2[0] + 0.05 * global_mse_range, p2[1])
+                                    
+                                    # Calculate distance from label positions to line segments
+                                    def distance_to_line_segment(point, seg_start, seg_end):
+                                        # Distance from point to line segment
+                                        seg_vec = (seg_end[0] - seg_start[0], seg_end[1] - seg_start[1])
+                                        point_vec = (point[0] - seg_start[0], point[1] - seg_start[1])
+                                        
+                                        seg_len_sq = seg_vec[0]**2 + seg_vec[1]**2
+                                        if seg_len_sq == 0:
+                                            return ((point[0] - seg_start[0])**2 + (point[1] - seg_start[1])**2)**0.5
+                                        
+                                        t = max(0, min(1, (point_vec[0]*seg_vec[0] + point_vec[1]*seg_vec[1]) / seg_len_sq))
+                                        projection = (seg_start[0] + t*seg_vec[0], seg_start[1] + t*seg_vec[1])
+                                        
+                                        return ((point[0] - projection[0])**2 + (point[1] - projection[1])**2)**0.5
+                                    
+                                    # Calculate clearance for left and right positions against ALL line segments
+                                    left_clearances = []
+                                    right_clearances = []
+                                    
+                                    # Check against all line segments in the curve
+                                    for j in range(len(mse_values) - 1):
+                                        seg_start = (mse_values[j], df_values[j])
+                                        seg_end = (mse_values[j + 1], df_values[j + 1])
+                                        
+                                        left_clearances.append(distance_to_line_segment(left_pos, seg_start, seg_end))
+                                        right_clearances.append(distance_to_line_segment(right_pos, seg_start, seg_end))
+                                    
+                                    # Use the minimum clearance (closest approach to any segment)
+                                    left_clearance = min(left_clearances) if left_clearances else 0
+                                    right_clearance = min(right_clearances) if right_clearances else 0
+                                    
+                                    # Choose the side with more clearance
+                                    if right_clearance > left_clearance:
+                                        current_side = 'right'
+                                    else:
+                                        current_side = 'left'
+                                else:
+                                    # Fallback if we can't calculate directions
+                                    current_side = 'right'  # Swap from default
+                            else:
+                                current_side = 'right'  # Default swap for edge cases
+                        
+                        # Step 2: Use adaptive positioning based on line direction
+                        if high_curvature:
+                            perp_offset = get_perpendicular_offset(i, mse_values, df_values, 12)
+                            if current_side == 'right':
+                                label_offset = (abs(perp_offset[0]), perp_offset[1])
+                                label_align = 'left'
+                            else:
+                                label_offset = (-abs(perp_offset[0]), perp_offset[1])
+                                label_align = 'right'
+                        else:
+                            # Normal positioning
+                            if current_side == 'right':
+                                label_offset = (12, 0)
+                                label_align = 'left'
+                            else:
+                                label_offset = (-12, 0)
+                                label_align = 'right'
+                        
+                        # Step 3: If still very high curvature, move further away
+                        if curvature > 1.0:
+                            label_offset = (label_offset[0] * 1.5, label_offset[1] * 1.5)
+                        
+                else:
+                    # Default positioning for other methods
+                    label_offset = (0, 8)
+                    label_align = 'center'
+                
+                ax.annotate(
+                    label,
+                    current_point,
+                    textcoords="offset points",
+                    xytext=label_offset,
+                    ha=label_align,
+                    fontsize=10,
+                    fontweight='bold',
+                    bbox=None
+                )
         
         # Collect all data points for axis limit calculations
         all_mse_values = []
@@ -525,24 +795,22 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
             if all_mse_values:
                 x_min, x_max = min(all_mse_values), max(all_mse_values)
                 x_range = x_max - x_min
-                # Add extra padding for smart-positioned labels that can appear in any direction
-                left_padding = x_range * 0.18 if x_range > 0 else x_max * 0.18
+                # Add extra padding: 12% on left for RGS labels, 15% on right for GS labels
+                left_padding = x_range * 0.12 if x_range > 0 else x_max * 0.12
                 right_padding = x_range * 0.15 if x_range > 0 else x_max * 0.15
                 ax.set_xlim(left=x_min - left_padding, right=x_max + right_padding)
         
         if log_scale_df:
             ax.set_yscale('log')
         else:
-            # Set y-axis limits with padding to ensure markers and labels are visible  
+            # Set y-axis limits with padding to ensure markers are visible  
             if all_df_values:
                 y_min, y_max = min(all_df_values), max(all_df_values)
                 y_range = y_max - y_min
-                # Increase top padding for smart-positioned labels that can appear above points
-                bottom_padding = y_range * 0.08 if y_range > 0 else y_max * 0.08
-                top_padding = y_range * 0.15 if y_range > 0 else y_max * 0.15
-                ax.set_ylim(bottom=y_min - bottom_padding, top=y_max + top_padding)
+                y_padding = y_range * 0.08 if y_range > 0 else y_max * 0.08
+                ax.set_ylim(bottom=y_min - y_padding, top=y_max + y_padding)
         
-        ax.set_xlabel('Mean Square Error (MSE)')
+        ax.set_xlabel('Training MSE')
         ax.set_ylabel('Degrees of Freedom (DF)')
         ax.legend(loc='best')
         ax.grid(True, alpha=0.3)

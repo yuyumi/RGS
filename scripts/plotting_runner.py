@@ -5,6 +5,48 @@ from typing import Optional, List, Dict, Tuple
 
 from rgs_experiments.plotting.plotting import *
 
+def parse_labels_string(labels_str: str) -> Dict[str, List[int]]:
+    """Parse labels string from command line format.
+    
+    Expected format: "RGS:1,20;GS:1,10,20" or "RGS=[1,20];GS=[1,10,20]"
+    """
+    if not labels_str or labels_str.lower() == 'none':
+        return {}
+    
+    labels_dict = {}
+    
+    # Split by semicolon to get method specifications
+    method_specs = labels_str.split(';')
+    
+    for spec in method_specs:
+        spec = spec.strip()
+        if not spec:
+            continue
+            
+        # Handle both "METHOD:k1,k2,k3" and "METHOD=[k1,k2,k3]" formats
+        if '=' in spec:
+            method, k_values_str = spec.split('=', 1)
+            k_values_str = k_values_str.strip('[]')
+        elif ':' in spec:
+            method, k_values_str = spec.split(':', 1)
+        else:
+            raise ValueError(f"Invalid label specification: {spec}. Use format 'METHOD:k1,k2' or 'METHOD=[k1,k2]'")
+        
+        method = method.strip()
+        k_values_str = k_values_str.strip()
+        
+        # Parse k values
+        if k_values_str:
+            try:
+                k_values = [int(k.strip()) for k in k_values_str.split(',') if k.strip()]
+                labels_dict[method] = k_values
+            except ValueError as e:
+                raise ValueError(f"Invalid k values for method {method}: {k_values_str}. Must be comma-separated integers.")
+        else:
+            labels_dict[method] = []
+    
+    return labels_dict
+
 def extract_metric_from_plot_name(plot_name: str) -> str:
     """Extract the metric name from plot name for global scaling lookup."""
     # Handle special cases first
@@ -30,7 +72,8 @@ def create_plots_for_result(
     params_path: Optional[Path] = None,
     show_std: bool = False,
     plot_type: str = 'both',  # Parameter to choose between 'line', 'bar', or 'both'
-    global_ylim_dict: Optional[Dict[str, Tuple[float, float]]] = None
+    global_ylim_dict: Optional[Dict[str, Tuple[float, float]]] = None,
+    labels: Optional[Dict[str, List[int]]] = None
 ) -> None:
     """Create all plots for a single simulation result file."""
     print(f"\nProcessing: {results_path.name} with {plot_type} plots")
@@ -61,13 +104,14 @@ def create_plots_for_result(
             for sigma in sigma_values:
                 save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.pdf"
                 
-                # Call the function with the method filter
+                # Call the function with the method filter and labels
                 plot_mse_vs_df_by_k(
                     results_path=results_path, 
                     target_sigma=sigma, 
                     save_path=save_path, 
                     show_std=show_std, 
-                    method_filter=lambda m: m in ['rgs', 'original_gs', 'gs']
+                    method_filter=lambda m: m in ['rgs', 'original_gs', 'gs'],
+                    labels=labels
                 )
                 # Note: MSE vs DF plots don't use global scaling as they have different axis meanings
                 print(f"Created: {save_path.name}")
@@ -155,7 +199,7 @@ def create_plots_for_result(
             except Exception as e:
                 print(f"Error creating {plot_name}: {str(e)}")
 
-def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, exclude: Optional[str] = None, plot_type: str = 'both', show_std: bool = True, global_scale: bool = True) -> None:
+def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = None, exclude: Optional[str] = None, plot_type: str = 'both', show_std: bool = True, global_scale: bool = True, labels: Optional[Dict[str, List[int]]] = None) -> None:
     """Run plotting for all simulation results matching the pattern."""
     # Get project root directory (two levels up from this script)
     root_dir = Path(__file__).parent.parent
@@ -252,7 +296,8 @@ def run_plotting(results_dir: Optional[str] = None, pattern: Optional[str] = Non
                 params_file, 
                 show_std=show_std,
                 plot_type=plot_type,
-                global_ylim_dict=global_ylim_dict
+                global_ylim_dict=global_ylim_dict,
+                labels=labels
             )
         except Exception as e:
             print(f"Error processing {result_file.name}:")
@@ -273,7 +318,19 @@ if __name__ == "__main__":
     parser.add_argument('--no-global-scale', action='store_false', dest='global_scale',
                       help='Disable global y-axis scaling (each plot uses its own scale)')
     parser.set_defaults(global_scale=True)
+    parser.add_argument('--labels', type=str, default=None,
+                      help='Specify which k values to label for MSE vs DF plots. Format: "RGS:1,20;GS:1,10,20" or "RGS=[1,20];GS=[1,10,20]". Use empty string or "none" for no labels.')
     
     args = parser.parse_args()
     
-    run_plotting(args.results_dir, args.pattern, args.exclude, args.plot_type, args.show_std, args.global_scale)
+    # Parse labels if provided
+    labels_dict = None
+    if args.labels is not None:
+        try:
+            labels_dict = parse_labels_string(args.labels)
+            print(f"Using custom labels: {labels_dict}")
+        except ValueError as e:
+            print(f"Error parsing labels: {e}")
+            exit(1)
+    
+    run_plotting(args.results_dir, args.pattern, args.exclude, args.plot_type, args.show_std, args.global_scale, labels_dict)
