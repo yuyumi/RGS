@@ -18,6 +18,5 @@ rgs_experiments/results/**/*.npy
 results/raw/*.json
 params/*.json
 notebooks/*
-old_params/*
-real_data/*.tsv
+temp/*
 .DS_Store
