@@ -148,8 +148,7 @@ class RGS(BaseEstimator, RegressorMixin):
         #     print("Using specialized forward selection path (m=p, B=1)")
         
         # Always use dictionary-based implementation (more reliable and general)
-        if n_features > 100:
-            warnings.warn("Large feature count (>100) detected. Performance may be impacted.")
+        # Note: Removed warning for large feature counts as the implementation handles them efficiently
         
         return X, y
     
