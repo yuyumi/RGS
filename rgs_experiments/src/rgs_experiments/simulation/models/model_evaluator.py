@@ -12,6 +12,7 @@ from sklearn.metrics import mean_squared_error
 # Import metrics
 from ..metrics import (
     calculate_relative_test_error,
+    calculate_relative_insample_error,
     calculate_f_score,
     calculate_df_for_all_k,
     calculate_df_for_all_k_ensemble,
@@ -133,13 +134,24 @@ class ModelEvaluator:
         error_diff = insample_error - mse + self.sigma**2
         df = (self.n_train / (2 * self.sigma**2)) * error_diff
         
-        # Calculate RTE and F-score
+        # Calculate RTE, RIE, and F-score
         rte = calculate_relative_test_error(
             beta_hat=coefficients,
             beta_true=beta_true,
             X_test=X_test,
             sigma=self.sigma,
             cov_matrix=cov_matrix
+        )
+        
+        # Calculate sample covariance matrix for RIE
+        train_cov_matrix = np.cov(X_train, rowvar=False)
+        
+        rie = calculate_relative_insample_error(
+            beta_hat=coefficients,
+            beta_true=beta_true,
+            X_train=X_train,
+            sigma=self.sigma,
+            cov_matrix=train_cov_matrix
         )
         
         f_score = calculate_f_score(
@@ -159,6 +171,7 @@ class ModelEvaluator:
             ),
             f'outsample_mse_{model_name}': mean_squared_error(y_test, y_pred_test),
             f'rte_{model_name}': rte,
+            f'rie_{model_name}': rie,
             f'f_score_{model_name}': f_score
         }
         

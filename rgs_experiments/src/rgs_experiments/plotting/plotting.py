@@ -216,12 +216,7 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
         if need_variance:
             new_columns['var_explained'] = df['sigma'].apply(lambda sigma: compute_variance_explained(signal_strength, sigma))
     
-    # Calculate RIE if needed
-    if metric == 'rie':
-        for method in PlottingConfig.METHODS:
-            insample_col = f'insample_{method}'
-            if insample_col in df.columns and not df[insample_col].isna().all():
-                new_columns[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
+
     
     # Add all new columns at once using concat to avoid fragmentation
     if new_columns:

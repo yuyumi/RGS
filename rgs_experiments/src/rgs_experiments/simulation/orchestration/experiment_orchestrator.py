@@ -19,6 +19,9 @@ from ..config.parameter_loader import get_sigma_list
 # Import scoring utilities
 from rgs.mse import create_mse_scorer
 
+# Import SNR and PVE utilities
+from ...utils.snr_utils import compute_snr, compute_variance_explained
+
 
 class ExperimentOrchestrator:
     """
@@ -168,7 +171,7 @@ class ExperimentOrchestrator:
         tuple
             (results_dict, timing_dict)
         """
-        from ..metrics import calculate_relative_test_error, calculate_f_score
+        from ..metrics import calculate_relative_test_error, calculate_relative_insample_error, calculate_f_score
         
         results = {}
         timing_results = {}
@@ -217,6 +220,15 @@ class ExperimentOrchestrator:
             beta_hat=lasso.coef_, beta_true=beta_true,
             X_test=X_test, sigma=sigma, cov_matrix=cov_matrix
         )
+        
+        # Calculate sample covariance matrix for RIE
+        train_cov_matrix = np.cov(X_train, rowvar=False)
+        
+        rie_lasso = calculate_relative_insample_error(
+            beta_hat=lasso.coef_, beta_true=beta_true,
+            X_train=X_train, sigma=sigma, cov_matrix=train_cov_matrix
+        )
+        
         f_score_lasso = calculate_f_score(beta_hat=lasso.coef_, beta_true=beta_true)
         
         results.update({
@@ -227,6 +239,7 @@ class ExperimentOrchestrator:
             'support_recovery_lasso': np.mean((lasso.coef_ != 0) == (beta_true != 0)),
             'outsample_mse_lasso': mean_squared_error(y_test, y_test_lasso),
             'rte_lasso': rte_lasso,
+            'rie_lasso': rie_lasso,
             'f_score_lasso': f_score_lasso
         })
         
@@ -254,6 +267,12 @@ class ExperimentOrchestrator:
             beta_hat=ridge.coef_, beta_true=beta_true,
             X_test=X_test, sigma=sigma, cov_matrix=cov_matrix
         )
+        
+        rie_ridge = calculate_relative_insample_error(
+            beta_hat=ridge.coef_, beta_true=beta_true,
+            X_train=X_train, sigma=sigma, cov_matrix=train_cov_matrix
+        )
+        
         f_score_ridge = calculate_f_score(beta_hat=ridge.coef_, beta_true=beta_true)
         
         results.update({
@@ -263,6 +282,7 @@ class ExperimentOrchestrator:
             'coef_recovery_ridge': np.mean((ridge.coef_ - beta_true)**2),
             'outsample_mse_ridge': mean_squared_error(y_test, y_test_ridge),
             'rte_ridge': rte_ridge,
+            'rie_ridge': rie_ridge,
             'f_score_ridge': f_score_ridge
         })
         
@@ -293,6 +313,12 @@ class ExperimentOrchestrator:
             beta_hat=elastic.coef_, beta_true=beta_true,
             X_test=X_test, sigma=sigma, cov_matrix=cov_matrix
         )
+        
+        rie_elastic = calculate_relative_insample_error(
+            beta_hat=elastic.coef_, beta_true=beta_true,
+            X_train=X_train, sigma=sigma, cov_matrix=train_cov_matrix
+        )
+        
         f_score_elastic = calculate_f_score(beta_hat=elastic.coef_, beta_true=beta_true)
         
         results.update({
@@ -303,6 +329,7 @@ class ExperimentOrchestrator:
             'support_recovery_elastic': np.mean((elastic.coef_ != 0) == (beta_true != 0)),
             'outsample_mse_elastic': mean_squared_error(y_test, y_test_elastic),
             'rte_elastic': rte_elastic,
+            'rie_elastic': rie_elastic,
             'f_score_elastic': f_score_elastic
         })
         
@@ -482,5 +509,36 @@ class ExperimentOrchestrator:
         
         # Add timing results to main results
         results.update(timing_results)
+        
+        # Calculate signal strength using beta_true and covariance matrix
+        signal_strength = beta_true.T @ cov_matrix @ beta_true
+        
+        # Calculate SNR
+        snr = compute_snr(signal_strength, sigma)
+        results['signal_strength'] = float(signal_strength)
+        results['snr'] = snr
+        
+        # Get PVE from stored values if available, otherwise compute it
+        sigma_config = self.params.get('simulation', {}).get('sigma', {})
+        if sigma_config.get('type') == 'pve' and 'pve_values' in sigma_config:
+            # PVE values were stored during sigma generation - find the matching one
+            computed_sigmas = sigma_config.get('computed_values', [])
+            pve_values = sigma_config.get('pve_values', [])
+            
+            # Find the PVE value that corresponds to this sigma
+            pve = None
+            for stored_sigma, stored_pve in zip(computed_sigmas, pve_values):
+                if np.isclose(sigma, stored_sigma, rtol=1e-10):
+                    pve = stored_pve
+                    break
+            
+            if pve is None:
+                # Fallback to computation if no match found
+                pve = compute_variance_explained(signal_strength, sigma)
+        else:
+            # Sigma was specified directly or no PVE values stored, compute PVE
+            pve = compute_variance_explained(signal_strength, sigma)
+        
+        results['pve'] = pve
         
         return results 

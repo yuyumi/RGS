@@ -112,18 +112,43 @@ class SimulationPipeline:
         else:
             raise ValueError(f"Unknown covariance type: {self.params['data']['covariance_type']}")
         
+        sigma_config = self.params['simulation']['sigma']
         sigmas = get_sigma_list(
-            self.params['simulation']['sigma'],
+            sigma_config,
             target_covariance=cov_matrix,
             signal_proportion=self.params['data']['signal_proportion'],
             generator_type=self.params['data']['generator_type'],
             eta=self.params['data']['generator_params'].get('eta', 0.5),
             seed=self.params['simulation']['base_seed']
         )
-        sigmas = sorted(sigmas)  # Sort for nice progression in progress bar
         
-        # Save the actual sigma values used
-        self.params['simulation']['sigma']['computed_values'] = sigmas
+        # If PVE was used, also store the original PVE values for later use
+        if sigma_config.get('type') == 'pve':
+            if sigma_config['style'] == 'list':
+                pve_values = sigma_config['values']
+            elif sigma_config['style'] == 'range':
+                pve_values = np.linspace(
+                    sigma_config['params']['min'],
+                    sigma_config['params']['max'],
+                    sigma_config['params']['num_points']
+                )
+            else:
+                pve_values = []
+            
+            # Create sigma-to-PVE mapping for later lookup
+            sigma_pve_pairs = list(zip(sigmas, pve_values))
+            # Sort by sigma to maintain order
+            sigma_pve_pairs = sorted(sigma_pve_pairs, key=lambda x: x[0])
+            sigmas = [pair[0] for pair in sigma_pve_pairs]
+            pve_values = [pair[1] for pair in sigma_pve_pairs]
+            
+            # Store both sigma and PVE values
+            self.params['simulation']['sigma']['computed_values'] = sigmas
+            self.params['simulation']['sigma']['pve_values'] = pve_values
+        else:
+            sigmas = sorted(sigmas)  # Sort for nice progression in progress bar
+            # Save the actual sigma values used
+            self.params['simulation']['sigma']['computed_values'] = sigmas
         
         return sigmas
     

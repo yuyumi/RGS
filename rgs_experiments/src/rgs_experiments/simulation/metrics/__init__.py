@@ -1,7 +1,7 @@
 """Statistical metrics and evaluation utilities for simulation experiments."""
 
 # Original metrics from simulation_main.py
-from .error_metrics import calculate_relative_test_error
+from .error_metrics import calculate_relative_test_error, calculate_relative_insample_error
 from .support_recovery_metrics import calculate_f_score
 
 # Degrees of freedom metrics (original)
