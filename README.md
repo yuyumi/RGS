@@ -2,6 +2,27 @@
 
 A research framework for Randomized Greedy Selection algorithms with comprehensive simulation and comparison tools.
 
+## Project Structure
+
+```
+RFS/
+├── scripts/              # Execution scripts
+│   ├── run_simulation.py
+│   ├── plotting_runner.py
+│   └── csv_combiner_runner.py
+├── rgs_experiments/      # Experiments package
+│   └── src/rgs_experiments/
+│       ├── simulation/   # Simulation utilities
+│       ├── plotting/     # Plotting functions
+│       └── utils/        # SNR and other utilities
+├── rgs/                  # Core RGS algorithm package
+├── results/              # Simulation outputs
+│   ├── raw/             # Raw CSV results
+│   └── figures/         # Generated plots
+├── params/              # Parameter configuration files
+└── templates/           # Example configurations
+```
+
 ## Quick Start
 
 ### Installation
@@ -125,18 +146,74 @@ X, y, y_true, beta_true, p, sigma = generate_exact_sparsity_example(
 )
 ```
 
+### SNR and Signal Strength Analysis
+
+```python
+from rgs_experiments.utils.snr_utils import (
+    get_signal_strength_from_results,
+    compute_snr_from_signal_strength
+)
+
+# Compute signal strength from simulation results
+signal_strength = get_signal_strength_from_results(
+    results_path="results/raw/simulation_results.csv",
+    method="from_params"  # Uses parameter files for true beta
+)
+
+# Convert to SNR
+snr = compute_snr_from_signal_strength(signal_strength, sigma=1.0)
+```
+
+### Advanced Plotting
+
+```python
+from rgs_experiments.plotting.plotting import (
+    plot_metric_by_variance_explained,
+    plot_mse_vs_df_by_k
+)
+
+# Plot performance vs variance explained
+fig = plot_metric_by_variance_explained(
+    results_path="results/raw/simulation_results.csv",
+    metric='mse',
+    show_std=True,
+    log_scale=False
+)
+
+# Plot MSE vs degrees of freedom trade-offs
+fig = plot_mse_vs_df_by_k(
+    results_path="results/raw/simulation_results.csv",
+    target_sigma=1.0,
+    show_std=True
+)
+```
+
+## Versioning
+
+### v1.2.0 - Enhanced Robustness
+
+- Resolved shape mismatch error in QR factorization updates that occurred with small orthogonal components
+- Added comprehensive signal-to-noise ratio computation from parameter files
+- Enhanced plotting functions to handle edge cases (single data points, NaN standard deviations)
+- Eliminated fallback values
+
+### v1.1.0 - Performance and Scalability
+
+- Major performance improvements for large-scale problems (p=2000+)
+- Significantly improved computational efficiency
+- Enhanced memory management
+
 ## Output
 
-- **Simulation results:** Saved to `results/raw/` as CSV files
+- **Simulation results:** Saved to `results/raw/` as CSV files with comprehensive metrics
+- **Parameter files:** Corresponding JSON files with simulation configurations
 - **Plots:** Generated in `results/figures/` including:
-  - MSE vs noise level
-  - MSE vs proportion of variance explained
+  - MSE vs noise level (SNR)
+  - MSE vs proportion of variance explained (PVE)
   - Degrees of freedom comparisons
   - Performance across different k values
+  - Method comparison visualizations
 
-## Version
-
-**v1.1.0** - Major performance improvements and critical bug fixes. Now supports large-scale problems (p=2000+) with significantly improved computational efficiency.
 
 ## License
 

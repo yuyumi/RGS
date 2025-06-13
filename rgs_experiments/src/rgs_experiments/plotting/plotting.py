@@ -6,6 +6,7 @@ import matplotlib.ticker as ticker
 from typing import Optional, List, Dict, Tuple
 from pathlib import Path
 from matplotlib.ticker import FuncFormatter
+from ..utils.snr_utils import get_signal_strength_from_results, compute_snr, compute_variance_explained
 
 __all__ = [
     'plot_mse_by_sigma',
@@ -152,7 +153,38 @@ def format_x_axis_decimal(ax):
     ax.grid(which='major', axis='x', linestyle='-', alpha=0.3)
     ax.grid(which='minor', axis='x', linestyle=':', alpha=0.2)
 
-def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool = False, norm_beta: float = 10.0):
+def _find_params_file(results_path: Path) -> str:
+    """Find the corresponding parameter file for a results file."""
+    results_path = Path(results_path)
+    
+    # Extract the timestamp from the results filename
+    # Expected format: simulation_results_<type>_<timestamp>.csv
+    filename = results_path.stem
+    if 'simulation_results_' in filename:
+        # Extract everything after 'simulation_results_'
+        suffix = filename.replace('simulation_results_', '')
+        params_filename = f"simulation_params_{suffix}.json"
+    else:
+        # Fallback: try to guess based on timestamp pattern
+        import re
+        timestamp_match = re.search(r'(\d{8}_\d{6})', filename)
+        if timestamp_match:
+            timestamp = timestamp_match.group(1)
+            # Look for any params file with this timestamp
+            params_pattern = f"*params*{timestamp}*.json"
+            params_files = list(results_path.parent.glob(params_pattern))
+            if params_files:
+                return str(params_files[0])
+        
+        raise ValueError(f"Could not find parameter file for results file: {results_path}")
+    
+    params_path = results_path.parent / params_filename
+    if not params_path.exists():
+        raise ValueError(f"Parameter file not found: {params_path}")
+    
+    return str(params_path)
+
+def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool = False):
     """Load CSV data and prepare it for plotting."""
     df = pd.read_csv(results_path)
     # Convert columns to numeric, keeping non-numeric columns as-is
@@ -167,8 +199,22 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
     # Prepare all new columns at once to avoid fragmentation
     new_columns = {}
     
-    # Add SNR calculation using provided signal strength
-    new_columns['snr'] = norm_beta / (df['sigma']**2)
+    # Get signal strength using proper utilities - no fallback allowed
+    # Try to find the corresponding parameter file
+    params_file_path = _find_params_file(results_path)
+    signal_strength = get_signal_strength_from_results(df, method="from_params", params_file_path=params_file_path)
+    if isinstance(signal_strength, np.ndarray):
+        # If we have per-row signal strengths, use them
+        new_columns['signal_strength'] = signal_strength
+        new_columns['snr'] = [compute_snr(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
+        if need_variance:
+            new_columns['var_explained'] = [compute_variance_explained(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
+    else:
+        # Single signal strength value for all rows
+        new_columns['signal_strength'] = signal_strength
+        new_columns['snr'] = df['sigma'].apply(lambda sigma: compute_snr(signal_strength, sigma))
+        if need_variance:
+            new_columns['var_explained'] = df['sigma'].apply(lambda sigma: compute_variance_explained(signal_strength, sigma))
     
     # Calculate RIE if needed
     if metric == 'rie':
@@ -176,10 +222,6 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
             insample_col = f'insample_{method}'
             if insample_col in df.columns and not df[insample_col].isna().all():
                 new_columns[f'rie_{method}'] = (df[insample_col] / (df['sigma']**2)) + 1
-    
-    # Calculate variance explained if needed
-    if need_variance:
-        new_columns['var_explained'] = norm_beta / (norm_beta + df['sigma']**2)
     
     # Add all new columns at once using concat to avoid fragmentation
     if new_columns:
@@ -247,11 +289,15 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
             all_means.extend(grouped['mean'].tolist())
             
             if show_std:
-                upper_bounds = grouped['mean'] + grouped['std']
-                all_upper_bounds.extend(upper_bounds.tolist())
-                ax.errorbar(grouped.index, grouped['mean'], yerr=grouped['std'],
-                           fmt='none', ecolor=PlottingConfig.COLORS[method],
-                           elinewidth=1, capsize=3)
+                # Only show error bars if std is not NaN
+                valid_std = ~grouped['std'].isna()
+                if valid_std.any():
+                    upper_bounds = grouped['mean'] + grouped['std']
+                    all_upper_bounds.extend(upper_bounds[valid_std].tolist())
+                    ax.errorbar(grouped.index[valid_std], grouped['mean'][valid_std], 
+                               yerr=grouped['std'][valid_std],
+                               fmt='none', ecolor=PlottingConfig.COLORS[method],
+                               elinewidth=1, capsize=3)
         
         _setup_axis_scaling(ax, log_scale, all_means, all_upper_bounds if show_std else None, global_ylim)
         
@@ -274,11 +320,11 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
         return None
 
 def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
-                                    show_std: bool = True, log_scale: bool = False, norm_beta: float = 10.0,
+                                    show_std: bool = True, log_scale: bool = False,
                                     global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
     """Plot metric vs proportion of variance explained with error bars."""
     try:
-        df = _load_and_prepare_data(results_path, metric, need_variance=True, norm_beta=norm_beta)
+        df = _load_and_prepare_data(results_path, metric, need_variance=True)
         available_methods = get_available_methods(df, metric)
         
         if not available_methods:
@@ -302,11 +348,15 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
             all_means.extend(grouped['mean'].tolist())
             
             if show_std:
-                upper_bounds = grouped['mean'] + grouped['std']
-                all_upper_bounds.extend(upper_bounds.tolist())
-                ax.errorbar(grouped.index, grouped['mean'], yerr=grouped['std'],
-                           fmt='none', ecolor=PlottingConfig.COLORS[method],
-                           elinewidth=1, capsize=3)
+                # Only show error bars if std is not NaN
+                valid_std = ~grouped['std'].isna()
+                if valid_std.any():
+                    upper_bounds = grouped['mean'] + grouped['std']
+                    all_upper_bounds.extend(upper_bounds[valid_std].tolist())
+                    ax.errorbar(grouped.index[valid_std], grouped['mean'][valid_std], 
+                               yerr=grouped['std'][valid_std],
+                               fmt='none', ecolor=PlottingConfig.COLORS[method],
+                               elinewidth=1, capsize=3)
         
         _setup_axis_scaling(ax, log_scale, all_means, all_upper_bounds if show_std else None, global_ylim)
         format_x_axis_decimal(ax)
@@ -865,8 +915,14 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
                    edgecolor='black', linewidth=0.5)
             
             if show_std:
-                ax.errorbar(positions, means, yerr=stds, fmt='none',
-                           color='black', capsize=3, linewidth=1, capthick=1)
+                # Only show error bars where std is not NaN
+                valid_indices = [i for i, std in enumerate(stds) if not np.isnan(std)]
+                if valid_indices:
+                    valid_positions = [positions[i] for i in valid_indices]
+                    valid_means = [means[i] for i in valid_indices]
+                    valid_stds = [stds[i] for i in valid_indices]
+                    ax.errorbar(valid_positions, valid_means, yerr=valid_stds, fmt='none',
+                               color='black', capsize=3, linewidth=1, capthick=1)
         
         if log_scale:
             ax.set_yscale('log')
@@ -899,7 +955,10 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
                     mean = snr_data[metric_col].mean()
                     if show_std:
                         std = snr_data[metric_col].std()
-                        all_values.extend([mean - std, mean + std])
+                        if not np.isnan(std):
+                            all_values.extend([mean - std, mean + std])
+                        else:
+                            all_values.append(mean)
                     else:
                         all_values.append(mean)
 
@@ -923,11 +982,11 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
         return None
 
 def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
-                                       show_std: bool = True, log_scale: bool = True, norm_beta: float = 10.0,
+                                       show_std: bool = True, log_scale: bool = True,
                                        global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
     """Create bar plot of metric by variance explained."""
     try:
-        df = _load_and_prepare_data(results_path, metric, need_variance=True, norm_beta=norm_beta)
+        df = _load_and_prepare_data(results_path, metric, need_variance=True)
         available_methods = get_available_methods(df, metric)
         
         if not available_methods:
@@ -959,8 +1018,14 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
                    edgecolor='black', linewidth=0.5)
             
             if show_std:
-                ax.errorbar(positions, means, yerr=stds, fmt='none',
-                           color='black', capsize=3, linewidth=1, capthick=1)
+                # Only show error bars where std is not NaN
+                valid_indices = [i for i, std in enumerate(stds) if not np.isnan(std)]
+                if valid_indices:
+                    valid_positions = [positions[i] for i in valid_indices]
+                    valid_means = [means[i] for i in valid_indices]
+                    valid_stds = [stds[i] for i in valid_indices]
+                    ax.errorbar(valid_positions, valid_means, yerr=valid_stds, fmt='none',
+                               color='black', capsize=3, linewidth=1, capthick=1)
         
         if log_scale:
             ax.set_yscale('log')
@@ -993,7 +1058,10 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
                     mean = var_data[metric_col].mean()
                     if show_std:
                         std = var_data[metric_col].std()
-                        all_values.extend([mean - std, mean + std])
+                        if not np.isnan(std):
+                            all_values.extend([mean - std, mean + std])
+                        else:
+                            all_values.append(mean)
                     else:
                         all_values.append(mean)
             
@@ -1092,7 +1160,7 @@ def barplot_rte_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='rte', **kwargs)
 
 def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bool = True, 
-                           log_scale: bool = False, norm_beta: float = 10.0) -> Optional[Tuple[float, float]]:
+                           log_scale: bool = False) -> Optional[Tuple[float, float]]:
     """Collect global y-limits across multiple result files for consistent scaling."""
     all_values = []
     
@@ -1102,7 +1170,7 @@ def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bo
             if metric in ['rie']:
                 df = _load_and_prepare_data(results_path, metric)
             elif metric in ['mse', 'outsample_mse', 'coef_recovery', 'rte']:
-                df = _load_and_prepare_data(results_path, metric, need_variance=True, norm_beta=norm_beta)
+                df = _load_and_prepare_data(results_path, metric, need_variance=True)
             else:
                 df = _load_and_prepare_data(results_path, metric)
             
@@ -1128,11 +1196,13 @@ def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bo
                     else:
                         grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
                     
-                    # Add error bar bounds
-                    upper_bounds = grouped['mean'] + grouped['std']
-                    lower_bounds = grouped['mean'] - grouped['std']
-                    all_values.extend(upper_bounds.tolist())
-                    all_values.extend(lower_bounds.tolist())
+                    # Add error bar bounds only if std is not NaN
+                    valid_std = ~grouped['std'].isna()
+                    if valid_std.any():
+                        upper_bounds = grouped['mean'] + grouped['std']
+                        lower_bounds = grouped['mean'] - grouped['std']
+                        all_values.extend(upper_bounds[valid_std].tolist())
+                        all_values.extend(lower_bounds[valid_std].tolist())
                     
         except Exception as e:
             print(f"Warning: Could not process {results_path.name} for global scaling: {str(e)}")

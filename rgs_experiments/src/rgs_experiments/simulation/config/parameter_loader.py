@@ -23,7 +23,7 @@ def pve_to_sigma(pve: float, signal_strength: float) -> float:
     Convert PVE (Proportion of Variance Explained) to sigma value.
     
     PVE = signal_strength / (signal_strength + sigma^2)
-    where signal_strength is the actual variance of the true signal
+    where signal_strength is ||Xβ||²/n (average squared magnitude of signal)
     
     Solving for sigma:
     sigma = sqrt(signal_strength * (1/PVE - 1))
@@ -33,7 +33,7 @@ def pve_to_sigma(pve: float, signal_strength: float) -> float:
     pve : float
         Proportion of variance explained
     signal_strength : float
-        Actual variance of the true signal
+        Average squared magnitude of signal (||Xβ||²/n)
         
     Returns
     -------
