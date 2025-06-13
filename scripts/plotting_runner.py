@@ -4,6 +4,7 @@ import argparse
 from typing import Optional, List, Dict, Tuple
 
 from rgs_experiments.plotting.plotting import *
+from rgs_experiments.utils.snr_utils import get_signal_strength_from_results, compute_snr
 
 def parse_labels_string(labels_str: str) -> Dict[str, List[int]]:
     """Parse labels string from command line format.
@@ -101,8 +102,15 @@ def create_plots_for_result(
         try:
             print("Attempting to create MSE vs DF by k plots...")
             
+            # Get signal strength to compute SNR values
+            import pandas as pd
+            df = pd.read_csv(results_path)
+            signal_strength = get_signal_strength_from_results(df, method="from_params", params_file_path=str(params_path))
+            
             for sigma in sigma_values:
-                save_path = figures_dir / f"mse_vs_df_by_k_sigma_{sigma:.3f}_{base_name}.pdf"
+                # Compute SNR for this sigma value
+                snr = compute_snr(signal_strength, sigma)
+                save_path = figures_dir / f"mse_vs_df_by_k_snr_{snr:.2f}_{base_name}.pdf"
                 
                 # Call the function with the method filter and labels
                 plot_mse_vs_df_by_k(

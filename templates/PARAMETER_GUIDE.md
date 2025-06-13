@@ -51,8 +51,8 @@ This guide documents all parameters used in the simulation pipeline and when the
 - **Requires**: `banded_params`
 ```json
 "banded_params": {
-    "gamma": 0.5,             // Correlation decay parameter (required, 0 <= gamma <= 1)
-    "fixed_design": false     // Whether to use fixed design matrix (optional, default: true)
+    "rho": 0.5,             // Correlation decay parameter (required, 0 <= rho <= 1)
+    "fixed_design": false    // Whether to use fixed design matrix (optional, default: true)
 }
 ```
 
@@ -195,7 +195,7 @@ The baseline models (Lasso, Ridge, ElasticNet) use configurable regularization p
 
 ### Value Constraints
 - `signal_proportion`: 0 < value <= 1
-- `gamma` (banded): 0 <= value <= 1  
+- `rho` (banded): 0 <= value <= 1  
 - `eta` (generators): 0 <= value <= 1
 - `fixed_design` (block): boolean value
 - All sample sizes: positive integers
@@ -225,7 +225,7 @@ The baseline models (Lasso, Ridge, ElasticNet) use configurable regularization p
         "covariance_type": "banded", 
         "generator_type": "inexact",
         "banded_params": {
-            "gamma": 0.5,
+            "rho": 0.5,
             "fixed_design": false
         },
         "generator_params": {

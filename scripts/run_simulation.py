@@ -16,7 +16,7 @@ from glob import glob
 # Add current directory to path for imports
 sys.path.append(str(Path(__file__).parent))
 
-from simulation.pipeline import SimulationPipeline
+from rgs_experiments.simulation.pipeline.simulation_pipeline import SimulationPipeline
 
 
 def run_multiple_simulations(params_dir='params', pattern=None):

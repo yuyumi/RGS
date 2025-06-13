@@ -107,11 +107,11 @@ def _validate_data_params(data_params: Dict[str, Any]) -> None:
         if 'banded_params' not in data_params:
             raise ValueError("banded_params required for banded covariance")
         banded_params = data_params['banded_params']
-        if 'gamma' not in banded_params:
-            raise ValueError("gamma required in banded_params")
-        gamma = banded_params['gamma']
-        if not 0 <= gamma <= 1:
-            raise ValueError("gamma must be between 0 and 1")
+        if 'rho' not in banded_params:
+            raise ValueError("rho required in banded_params")
+        rho = banded_params['rho']
+        if not 0 <= rho <= 1:
+            raise ValueError("rho must be between 0 and 1")
         
         # Validate fixed_design parameter if present
         if 'fixed_design' in banded_params:

@@ -10,7 +10,7 @@ __all__ = [
     'generate_laplace_example',
     'generate_cauchy_example',
     'generate_spaced_sparsity_example',
-    'compute_signal_strength',
+    '_compute_nonlinear_signal_strength_empirical',
     'compute_expected_signal_strength'
 ]
 
@@ -129,7 +129,7 @@ def _create_fixed_design_matrix(target_covariance, n_train, n_predictors):
 
 
 
-def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123, fixed_design=True):
+def generate_banded_X(n_predictors, n_train, rho=0.65, seed=123, fixed_design=True):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
     
@@ -139,7 +139,7 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123, fixed_design=
         Number of predictor variables/columns in X
     n_train : int
         Number of samples/rows in X
-    gamma : float, default=0.65
+    rho : float, default=0.65
         Correlation decay parameter for AR(1) structure
     seed : int, default=123
         Random seed for reproducibility
@@ -159,7 +159,7 @@ def generate_banded_X(n_predictors, n_train, gamma=0.65, seed=123, fixed_design=
     # Create correlation matrix
     indices = np.arange(n_predictors)
     distances = np.abs(indices[:, np.newaxis] - indices)
-    gram_matrix = gamma**distances
+    gram_matrix = rho**distances
     
     if fixed_design:
         # Fixed design: construct X such that X^T X / n = target_covariance
@@ -380,9 +380,12 @@ def generate_cauchy_example(X, signal_proportion, sigma=None, seed=123):
     
     return X, y, y_true, beta, p, sigma
 
-def compute_signal_strength(X, signal_proportion, generator_type='exact', eta=0.5, seed=123):
+def _compute_nonlinear_signal_strength_empirical(X, signal_proportion, eta=0.5, seed=123):
     """
-    Compute the signal strength for different generator types.
+    Compute empirical signal strength for nonlinear generator type only.
+    
+    This function is only used internally for Monte Carlo estimation in 
+    compute_expected_signal_strength() for the nonlinear case.
     
     For nonlinear signals, use the formula:
         signal_i = eta * (sum_{j=1}^{s2} x_{ij}^2 + sum_{j=1}^{s2-1} sum_{l=j+1}^{s2} x_{ij} x_{il})
@@ -396,46 +399,39 @@ def compute_signal_strength(X, signal_proportion, generator_type='exact', eta=0.
         Design matrix
     signal_proportion : float
         Proportion of variables that are signals
-    generator_type : str
-        Type of generator ('exact', 'inexact', 'nonlinear', 'laplace', 'cauchy', 'spaced')
     eta : float
-        Parameter for inexact/nonlinear generators
+        Parameter for nonlinear generator
     seed : int
         Random seed for reproducibility
     
     Returns:
     --------
     signal_strength : float
-        Average squared magnitude of the signal (||signal||^2/n)
+        Average squared magnitude of the nonlinear signal (||signal||^2/n)
     """
     np.random.seed(seed)
     n_train, p = X.shape
     signals = int(p * signal_proportion)
     
-    if generator_type == 'nonlinear':
-        s = signals
-        s2 = s // 2
-        signal = np.zeros(n_train)
-        for i in range(n_train):
-            x_row = X[i, :]
-            # Nonlinear part: sum of squares
-            quad_sum = np.sum(x_row[:s2] ** 2)
-            # Nonlinear part: pairwise products
-            pair_sum = 0.0
-            for j in range(s2 - 1):
-                for l in range(j + 1, s2):
-                    pair_sum += x_row[j] * x_row[l]
-            # Linear part
-            linear_sum = np.sum(x_row[:s])
-            # Combine
-            signal[i] = eta * (quad_sum + pair_sum) + (1 - eta) * linear_sum
-        # Compute signal strength as mean squared signal
-        signal_strength = np.mean(signal ** 2)
-    else:
-        # For all other generator types, use the helper function
-        beta = _construct_beta_vector(p, signal_proportion, generator_type, eta=eta, seed=seed)
-        y_true = X @ beta
-        signal_strength = np.sum(y_true ** 2) / n_train
+    # Only handle nonlinear case
+    s = signals
+    s2 = s // 2
+    signal = np.zeros(n_train)
+    for i in range(n_train):
+        x_row = X[i, :]
+        # Nonlinear part: sum of squares
+        quad_sum = np.sum(x_row[:s2] ** 2)
+        # Nonlinear part: pairwise products
+        pair_sum = 0.0
+        for j in range(s2 - 1):
+            for l in range(j + 1, s2):
+                pair_sum += x_row[j] * x_row[l]
+        # Linear part
+        linear_sum = np.sum(x_row[:s])
+        # Combine
+        signal[i] = eta * (quad_sum + pair_sum) + (1 - eta) * linear_sum
+    # Compute signal strength as mean squared signal
+    signal_strength = np.mean(signal ** 2)
     
     return signal_strength
 
@@ -492,8 +488,8 @@ def compute_expected_signal_strength(target_covariance, signal_proportion, gener
             )
             
             # Compute signal strength for this realization
-            strength = compute_signal_strength(
-                X_sample, signal_proportion, generator_type, eta, seed
+            strength = _compute_nonlinear_signal_strength_empirical(
+                X_sample, signal_proportion, eta, seed
             )
             signal_strengths.append(strength)
         

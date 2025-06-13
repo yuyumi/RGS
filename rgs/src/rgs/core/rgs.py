@@ -518,20 +518,15 @@ class RGS(BaseEstimator, RegressorMixin):
         selected = []
         unselected = np.arange(n_features)
         
-        # Pre-allocate matrices for QR factorization
-        # Allocate the maximum size we might need
+        # Pre-allocate QR matrices
         Q_full = np.zeros((n_samples, self.k_max))
         R_full = np.zeros((self.k_max, self.k_max))
         
-        # Keep track of actual size of QR factorization
-        k_current = 0
-        
-        # Initial residuals = y_centered (since no features are selected yet)
+        # Initialize residuals
         residuals = y_centered.copy()
         
         # Pre-compute feature norms (constant across iterations)
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
-        # feature_norms[feature_norms < 1e-10] = 1.0
         
         # Main loop - select one feature at a time
         for k in range(1, self.k_max + 1):
@@ -552,7 +547,7 @@ class RGS(BaseEstimator, RegressorMixin):
                 X_unsel = X_centered[:, unselected]
                 
                 # Current Q matrix
-                Q = Q_full[:, :k_current]
+                Q = Q_full[:, :k-1]
                 
                 # 1. Compute correlations: |X_unsel^T residuals|
                 correlations = np.abs(X_unsel.T @ residuals)
@@ -584,17 +579,16 @@ class RGS(BaseEstimator, RegressorMixin):
             x_best = X_centered[:, best_feature]
             
             # Update QR factorization with rank-one update
-            if k_current == 0:
+            if k == 1:
                 # First feature - just normalize and store
                 norm_x = np.linalg.norm(x_best)
                 Q_full[:, 0] = x_best / norm_x
                 R_full[0, 0] = norm_x
-                k_current = 1
             else:
                 # True rank-one update
                 
                 # Current Q matrix
-                Q = Q_full[:, :k_current]
+                Q = Q_full[:, :k-1]  # Exclude the column we're about to fill
                 
                 # 1. Project x_best onto current Q
                 QTx = Q.T @ x_best
@@ -603,25 +597,30 @@ class RGS(BaseEstimator, RegressorMixin):
                 x_orth = x_best - Q @ QTx
                 orth_norm = np.linalg.norm(x_orth)
                 
-                # 3. Update Q and R if orthogonal component is significant
+                # 3. Update Q and R (always add feature when selected)
+                current_idx = k - 1  # Index of current feature being added
                 if orth_norm > 1e-10:
                     # Normalize orthogonal component
-                    Q_full[:, k_current] = x_orth / orth_norm
+                    Q_full[:, current_idx] = x_orth / orth_norm
                     
                     # Update R
-                    R_full[:k_current, k_current] = QTx
-                    R_full[k_current, k_current] = orth_norm
+                    R_full[:current_idx, current_idx] = QTx
+                    R_full[current_idx, current_idx] = orth_norm
+                else:
+                    # Handle linearly dependent feature: add with zero orthogonal component
+                    Q_full[:, current_idx] = 0.0  # Zero orthogonal component
                     
-                    # Increment the size counter
-                    k_current += 1
+                    # Update R 
+                    R_full[:current_idx, current_idx] = QTx
+                    R_full[current_idx, current_idx] = 1e-10  # Small value to avoid singularity
             
             # Update residuals: r = y - Q(Q^T y)
-            Q = Q_full[:, :k_current]
+            Q = Q_full[:, :k]
             QTy = Q.T @ y_centered
             residuals = y_centered - Q @ QTy
             
             # Compute coefficients using R
-            R = R_full[:k_current, :k_current]
+            R = R_full[:k, :k]
             beta = linalg.solve_triangular(R, QTy, lower=False, check_finite=False)
             
             # Create coefficient vector
@@ -673,7 +672,6 @@ class RGS(BaseEstimator, RegressorMixin):
         
         # Pre-compute feature norms using vectorized operations
         feature_norms = np.sqrt(np.sum(X_centered**2, axis=0))
-        # feature_norms[feature_norms < 1e-10] = 1.0
         
         # Initialize feature tracking - dictionary-based implementation
         feature_sets = [{} for _ in range(self.k_max + 2)]  # +2 to avoid index errors

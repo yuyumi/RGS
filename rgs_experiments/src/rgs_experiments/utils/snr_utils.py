@@ -9,67 +9,6 @@ import numpy as np
 from typing import Union, Dict, Any, Optional
 
 
-def compute_signal_strength(beta: np.ndarray, X: Optional[np.ndarray] = None, 
-                          generator_type: str = "normal", 
-                          generator_params: Optional[Dict[str, Any]] = None) -> float:
-    """
-    Compute the signal strength ||X*beta||^2 / n for different generator types.
-    
-    For most generators, this equals ||beta||^2. For correlated generators,
-    it accounts for the covariance structure.
-    
-    Parameters
-    ----------
-    beta : np.ndarray
-        True coefficient vector
-    X : np.ndarray, optional
-        Design matrix. Required for certain generator types.
-    generator_type : str, default="normal"
-        Type of data generator used
-    generator_params : dict, optional
-        Parameters for the data generator
-        
-    Returns
-    -------
-    float
-        Signal strength
-    """
-    if generator_type in ["normal", "uniform", "exponential", "laplace"]:
-        # For independent generators, signal strength is ||beta||^2
-        return np.sum(beta**2)
-    
-    elif generator_type == "correlated_normal":
-        if X is None:
-            # Fallback to ||beta||^2 if X not provided
-            return np.sum(beta**2)
-        
-        # For correlated data, compute actual signal strength
-        signal = X @ beta
-        return np.mean(signal**2)
-    
-    elif generator_type == "banded":
-        # For banded correlation structure
-        if generator_params is None:
-            rho = 0.5  # default
-        else:
-            rho = generator_params.get("rho", 0.5)
-        
-        # Approximate signal strength for banded correlation
-        # This is an approximation - exact computation would require the full covariance matrix
-        base_strength = np.sum(beta**2)
-        
-        # Account for correlation between adjacent features
-        correlation_adjustment = 0.0
-        for i in range(len(beta) - 1):
-            correlation_adjustment += 2 * rho * beta[i] * beta[i+1]
-        
-        return base_strength + correlation_adjustment
-    
-    else:
-        # Default fallback
-        return np.sum(beta**2)
-
-
 def pve_to_sigma(pve: float, signal_strength: float) -> float:
     """
     Convert proportion of variance explained (PVE) to noise standard deviation.
@@ -235,43 +174,59 @@ def get_signal_strength_from_results(results_df, method: str = "from_params", pa
         with open(params_file_path, 'r') as f:
             params = json.load(f)
         
-        # Extract parameters needed for beta construction
+        # Extract parameters needed for signal strength computation
         p = params['data']['n_predictors']
         signal_proportion = params['data']['signal_proportion']
         generator_type = params['data']['generator_type']
         eta = params['data']['generator_params'].get('eta', 0.5)
         seed = params['simulation']['base_seed']
+        covariance_type = params['data']['covariance_type']
         
-        # Construct the true beta vector using the same logic as the simulation
-        beta = _construct_beta_vector(p, signal_proportion, generator_type, eta=eta, seed=seed)
+        # For nonlinear DGP, use the specialized computation from sim_util_dgs
+        if generator_type == 'nonlinear':
+            # Import the correct function to avoid circular imports
+            from .sim_util_dgs import compute_expected_signal_strength
+            
+            # Construct target covariance matrix
+            if covariance_type == 'banded':
+                rho = params['data']['banded_params'].get('rho', 0.5)
+                target_covariance = _construct_banded_covariance_matrix(p, rho)
+            elif covariance_type == 'block':
+                block_size = params['data']['block_params'].get('block_size', 20)
+                within_correlation = params['data']['block_params'].get('within_correlation', 0.25)
+                target_covariance = _construct_block_covariance_matrix(p, block_size, within_correlation)
+            else:
+                raise ValueError(f"Unsupported covariance_type: {covariance_type}. Supported types: 'banded', 'block'")
+            
+            # Use the correct nonlinear signal strength computation
+            return float(compute_expected_signal_strength(
+                target_covariance, signal_proportion, generator_type, eta, seed
+            ))
         
-        # For banded covariance, we need to account for correlation structure
-        if params['data']['covariance_type'] == 'banded':
-            gamma = params['data']['banded_params'].get('gamma', 0.5)
-            # Approximate signal strength accounting for correlation
-            base_strength = np.sum(beta**2)
-            correlation_adjustment = 0.0
-            for i in range(len(beta) - 1):
-                correlation_adjustment += 2 * gamma * beta[i] * beta[i+1]
-            return base_strength + correlation_adjustment
+        # For all other generator types, use the linear β^T Σ β approach
         else:
-            # For other covariance types, use simple ||beta||^2
-            return np.sum(beta**2)
+            # Construct the true beta vector using the same logic as the simulation
+            beta = _construct_beta_vector(p, signal_proportion, generator_type, eta=eta, seed=seed)
+            
+            # Compute true signal strength β^T Σ β based on covariance structure
+            if covariance_type == 'banded':
+                rho = params['data']['banded_params'].get('rho', 0.5)
+                # Construct banded covariance matrix and compute β^T Σ β
+                cov_matrix = _construct_banded_covariance_matrix(p, rho)
+                return float(beta.T @ cov_matrix @ beta)
+            
+            elif covariance_type == 'block':
+                block_size = params['data']['block_params'].get('block_size', 20)
+                within_correlation = params['data']['block_params'].get('within_correlation', 0.25)
+                # Construct block covariance matrix and compute β^T Σ β
+                cov_matrix = _construct_block_covariance_matrix(p, block_size, within_correlation)
+                return float(beta.T @ cov_matrix @ beta)
+            
+            else:
+                raise ValueError(f"Unsupported covariance_type: {covariance_type}. Supported types: 'banded', 'block'")
     
     elif method == "from_beta":
-        if "true_beta" not in results_df.columns:
-            raise ValueError("true_beta column not found in results DataFrame. Cannot compute signal strength from beta values.")
-        
-        # Compute from true beta values
-        signal_strengths = []
-        for beta_str in results_df["true_beta"]:
-            if isinstance(beta_str, str):
-                # Parse string representation of array
-                beta = np.fromstring(beta_str.strip("[]"), sep=" ")
-            else:
-                beta = np.array(beta_str)
-            signal_strengths.append(np.sum(beta**2))
-        return np.array(signal_strengths)
+        raise ValueError("Method 'from_beta' is not supported. Use 'from_params' to compute signal strength with proper covariance structure, or 'from_snr' if SNR data is available.")
     
     elif method == "from_snr":
         if "snr" not in results_df.columns or "sigma" not in results_df.columns:
@@ -282,6 +237,74 @@ def get_signal_strength_from_results(results_df, method: str = "from_params", pa
     
     else:
         raise ValueError(f"Unknown method '{method}'. Supported methods: 'from_params', 'from_beta', 'from_snr'")
+
+
+def _construct_banded_covariance_matrix(p: int, rho: float) -> np.ndarray:
+    """
+    Construct a banded (AR(1)) covariance matrix with correlation parameter rho.
+    
+    The matrix has the structure Σ[i,j] = ρ^|i-j|, which is the AR(1) autoregressive 
+    correlation structure.
+    
+    Parameters
+    ----------
+    p : int
+        Size of the covariance matrix (p x p)
+    rho : float
+        Correlation parameter (0 < rho < 1)
+        
+    Returns
+    -------
+    np.ndarray
+        Banded covariance matrix of shape (p, p)
+    """
+    cov_matrix = np.zeros((p, p))
+    
+    # Fill the matrix with AR(1) structure: Σ[i,j] = ρ^|i-j|
+    for i in range(p):
+        for j in range(p):
+            cov_matrix[i, j] = rho ** abs(i - j)
+    
+    return cov_matrix
+
+
+def _construct_block_covariance_matrix(p: int, block_size: int, within_correlation: float) -> np.ndarray:
+    """
+    Construct a block covariance matrix with specified block size and within-block correlation.
+    
+    The matrix has blocks of size `block_size` with `within_correlation` between variables 
+    within the same block and 0 correlation between variables in different blocks.
+    
+    Parameters
+    ----------
+    p : int
+        Size of the covariance matrix (p x p)
+    block_size : int
+        Size of each block
+    within_correlation : float
+        Correlation between variables within the same block
+        
+    Returns
+    -------
+    np.ndarray
+        Block covariance matrix of shape (p, p)
+    """
+    cov_matrix = np.eye(p)
+    
+    # Create blocks with within-block correlations
+    n_blocks = (p + block_size - 1) // block_size  # Ceiling division
+    
+    for block_idx in range(n_blocks):
+        start_idx = block_idx * block_size
+        end_idx = min((block_idx + 1) * block_size, p)
+        
+        # Set within-block correlations
+        for i in range(start_idx, end_idx):
+            for j in range(start_idx, end_idx):
+                if i != j:  # Off-diagonal elements within block
+                    cov_matrix[i, j] = within_correlation
+    
+    return cov_matrix
 
 
 def _construct_beta_vector(p, signal_proportion, generator_type='exact', eta=0.5, seed=123):

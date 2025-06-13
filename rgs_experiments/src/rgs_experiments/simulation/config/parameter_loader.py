@@ -47,15 +47,17 @@ def pve_to_sigma(pve: float, signal_strength: float) -> float:
 
 
 def get_sigma_list(sigma_params: Dict[str, Any], 
-                   X: np.ndarray = None,
-                   target_covariance: np.ndarray = None,
-                   signal_proportion: float = None,
+                   target_covariance: np.ndarray,
+                   signal_proportion: float,
                    generator_type: str = 'exact',
                    eta: float = 0.5,
-                   seed: int = 123,
-                   fixed_design: bool = True) -> List[float]:
+                   seed: int = 123) -> List[float]:
     """
     Get list of sigma values based on parameters.
+    
+    Uses theoretical signal strength β^T Σ β for all designs. This is appropriate because:
+    - Fixed design: X is constructed such that (1/n)X^T X ≈ Σ by design
+    - Random design: E[X^T X / n] = Σ by definition
     
     Parameters
     ----------
@@ -63,10 +65,8 @@ def get_sigma_list(sigma_params: Dict[str, Any],
         Dictionary containing either:
         - type: "list" and values with list of sigma values
         - type: "pve" and params with num_points, min_pve, max_pve
-    X : ndarray, optional
-        Design matrix (for fixed design)
-    target_covariance : ndarray, optional
-        Target covariance matrix (for random design)
+    target_covariance : ndarray
+        Target covariance matrix from sim_util_dgs (e.g., from generate_banded_X)
     signal_proportion : float
         Signal proportion (needed for PVE calculation)
     generator_type : str
@@ -75,8 +75,6 @@ def get_sigma_list(sigma_params: Dict[str, Any],
         Parameter for inexact/nonlinear generators
     seed : int
         Random seed for reproducibility
-    fixed_design : bool
-        Whether using fixed design (True) or random design (False)
         
     Returns
     -------
@@ -85,21 +83,13 @@ def get_sigma_list(sigma_params: Dict[str, Any],
     """
     if sigma_params['type'] == 'pve':
         # Import here to avoid circular imports
-        from rgs_experiments.utils.sim_util_dgs import compute_signal_strength, compute_expected_signal_strength
+        from rgs_experiments.utils.sim_util_dgs import compute_expected_signal_strength
         
-        # Compute signal strength based on design type
-        if fixed_design:
-            if X is None:
-                raise ValueError("X must be provided for fixed design")
-            signal_strength = compute_signal_strength(
-                X, signal_proportion, generator_type, eta, seed
-            )
-        else:
-            if target_covariance is None:
-                raise ValueError("target_covariance must be provided for random design")
-            signal_strength = compute_expected_signal_strength(
-                target_covariance, signal_proportion, generator_type, eta, seed
-            )
+        # Use theoretical signal strength β^T Σ β
+        # This works for both fixed and random designs since sim_util_dgs provides the covariance matrix
+        signal_strength = compute_expected_signal_strength(
+            target_covariance, signal_proportion, generator_type, eta, seed
+        )
         
         if sigma_params['style'] == 'list':
             pve_values = sigma_params['values']

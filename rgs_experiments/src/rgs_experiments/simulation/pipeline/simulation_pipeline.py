@@ -114,13 +114,11 @@ class SimulationPipeline:
         
         sigmas = get_sigma_list(
             self.params['simulation']['sigma'],
-            X=X if fixed_design else None,
-            target_covariance=cov_matrix if not fixed_design else None,
+            target_covariance=cov_matrix,
             signal_proportion=self.params['data']['signal_proportion'],
             generator_type=self.params['data']['generator_type'],
             eta=self.params['data']['generator_params'].get('eta', 0.5),
-            seed=self.params['simulation']['base_seed'],
-            fixed_design=fixed_design
+            seed=self.params['simulation']['base_seed']
         )
         sigmas = sorted(sigmas)  # Sort for nice progression in progress bar
         

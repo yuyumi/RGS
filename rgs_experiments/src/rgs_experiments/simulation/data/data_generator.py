@@ -55,7 +55,7 @@ class DataGenerator:
             banded_params = self.data_params['banded_params']
             self.design_generator = generate_banded_X
             self.design_kwargs = {
-                'gamma': banded_params['gamma'],
+                'rho': banded_params['rho'],
                 'fixed_design': banded_params.get('fixed_design', True)
             }
         
