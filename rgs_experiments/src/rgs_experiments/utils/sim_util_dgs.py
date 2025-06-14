@@ -58,15 +58,14 @@ def _construct_beta_vector(p, signal_proportion, generator_type='exact', eta=0.5
                 beta[indices] = 1
                 
     elif generator_type == 'inexact':
-        # Exponentially decaying coefficients
+        # Exponentially decaying coefficients with alternating signs
         beta = np.zeros(p)
         beta[:signals] = 1.0  # Strong signals
         
-        # Generate random signs for remaining coefficients
-        signs = np.random.choice([-1, 1], size=p-signals)
-        indices = np.arange(p-signals)
-        magnitudes = np.exp(-eta * indices)
-        beta[signals:] = signs * magnitudes
+        # Weak signals: β_i = (-1)^i * exp(-i*eta) for s < i ≤ p (using 1-based indexing)
+        for i in range(signals+1, p+1):  # 1-based indexing: s+1 to p
+            idx = i - 1  # Convert to 0-based indexing
+            beta[idx] = ((-1)**i) * np.exp(-i*eta)
         
     elif generator_type == 'nonlinear':
         # For nonlinear, return the linear component beta
@@ -328,23 +327,30 @@ def generate_nonlinear_example(X, signal_proportion, sigma=None, eta=0.5, seed=1
     np.random.seed(seed)
     n_train, p = X.shape
     signals = int(p * signal_proportion)
+    s2 = signals // 2  # Number of nonlinear variables
     
     # Linear component
     beta_linear = _construct_beta_vector(p, signal_proportion, 'nonlinear', seed=seed)
     linear_signal = X @ beta_linear
     
     # Nonlinear component using interactions and quadratic terms
-    X_active = X[:, :signals//2]
-    quad_terms = X_active**2
+    if s2 > 0:
+        X_active = X[:, :s2]
+        quad_terms = X_active**2
+        
+        # Create pairwise interactions - only if we have at least 2 nonlinear variables
+        interactions = np.zeros(n_train)
+        if s2 >= 2:  # Need at least 2 variables for interactions
+            for i in range(s2):
+                for j in range(i+1, s2):
+                    interactions += X_active[:, i] * X_active[:, j]
+        
+        # Combine linear and nonlinear components
+        nonlinear_signal = (quad_terms.sum(axis=1) + interactions) / np.sqrt(p)
+    else:
+        # No nonlinear variables (s2 = 0)
+        nonlinear_signal = np.zeros(n_train)
     
-    # Create pairwise interactions
-    interactions = np.zeros(n_train)
-    for i in range(4):
-        for j in range(i+1, 5):
-            interactions += X_active[:, i] * X_active[:, j]
-    
-    # Combine linear and nonlinear components
-    nonlinear_signal = (quad_terms.sum(axis=1) + interactions) / np.sqrt(p)
     y_true = (1 - eta) * linear_signal + eta * nonlinear_signal
     y = y_true + np.random.normal(0, sigma, n_train)
     
@@ -388,10 +394,12 @@ def _compute_nonlinear_signal_strength_empirical(X, signal_proportion, eta=0.5, 
     compute_expected_signal_strength() for the nonlinear case.
     
     For nonlinear signals, use the formula:
-        signal_i = eta * (sum_{j=1}^{s2} x_{ij}^2 + sum_{j=1}^{s2-1} sum_{l=j+1}^{s2} x_{ij} x_{il})
+        signal_i = eta * (sum_{j=1}^{s2} x_{ij}^2 + sum_{j=1}^{s2-1} sum_{l=j+1}^{s2} x_{ij} x_{il}) / sqrt(p)
                   + (1-eta) * sum_{j=1}^{s} x_{ij}
-    where s = number of signals, s2 = s//2
+    where s = number of signals, s2 = s//2, p = number of predictors
     Signal strength is then mean(signal_i^2) over all samples.
+    
+    Note: This function now includes the √p scaling factor to match generate_nonlinear_example.
     
     Parameters:
     -----------
@@ -421,15 +429,18 @@ def _compute_nonlinear_signal_strength_empirical(X, signal_proportion, eta=0.5, 
         x_row = X[i, :]
         # Nonlinear part: sum of squares
         quad_sum = np.sum(x_row[:s2] ** 2)
-        # Nonlinear part: pairwise products
+        # Nonlinear part: pairwise products - only if we have at least 2 nonlinear variables
         pair_sum = 0.0
-        for j in range(s2 - 1):
-            for l in range(j + 1, s2):
-                pair_sum += x_row[j] * x_row[l]
+        if s2 >= 2:  # Need at least 2 variables for interactions
+            for j in range(s2 - 1):
+                for l in range(j + 1, s2):
+                    pair_sum += x_row[j] * x_row[l]
+        # Apply √p scaling to nonlinear component (to match generate_nonlinear_example)
+        nonlinear_component = (quad_sum + pair_sum) / np.sqrt(p)
         # Linear part
         linear_sum = np.sum(x_row[:s])
         # Combine
-        signal[i] = eta * (quad_sum + pair_sum) + (1 - eta) * linear_sum
+        signal[i] = eta * nonlinear_component + (1 - eta) * linear_sum
     # Compute signal strength as mean squared signal
     signal_strength = np.mean(signal ** 2)
     

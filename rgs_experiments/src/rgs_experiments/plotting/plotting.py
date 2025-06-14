@@ -216,6 +216,17 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
         if need_variance:
             new_columns['var_explained'] = df['sigma'].apply(lambda sigma: compute_variance_explained(signal_strength, sigma))
     
+    # Check if RIE columns exist, if not, construct them from insample error
+    # RIE = (insample error)/sigma^2 + 1
+    available_methods = get_available_methods(df, 'insample')
+    
+    for method in available_methods:
+        rie_col = f'rie_{method}'
+        insample_col = f'insample_{method}'
+        
+        if rie_col not in df.columns and insample_col in df.columns:
+            # Construct RIE from insample error: RIE = (insample error)/sigma^2 + 1
+            new_columns[rie_col] = (df[insample_col] / (df['sigma'] ** 2)) + 1
 
     
     # Add all new columns at once using concat to avoid fragmentation

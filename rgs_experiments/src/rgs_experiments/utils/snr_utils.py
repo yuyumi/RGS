@@ -352,15 +352,14 @@ def _construct_beta_vector(p, signal_proportion, generator_type='exact', eta=0.5
                 beta[indices] = 1
                 
     elif generator_type == 'inexact':
-        # Exponentially decaying coefficients
+        # Exponentially decaying coefficients with alternating signs
         beta = np.zeros(p)
         beta[:signals] = 1.0  # Strong signals
         
-        # Generate random signs for remaining coefficients
-        signs = np.random.choice([-1, 1], size=p-signals)
-        indices = np.arange(p-signals)
-        magnitudes = np.exp(-eta * indices)
-        beta[signals:] = signs * magnitudes
+        # Weak signals: β_i = (-1)^i * exp(-i*eta) for s < i ≤ p (using 1-based indexing)
+        for i in range(signals+1, p+1):  # 1-based indexing: s+1 to p
+            idx = i - 1  # Convert to 0-based indexing
+            beta[idx] = ((-1)**i) * np.exp(-i*eta)
         
     elif generator_type == 'nonlinear':
         # For nonlinear, return the linear component beta
