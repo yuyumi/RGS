@@ -200,21 +200,39 @@ def _load_and_prepare_data(results_path: Path, metric: str, need_variance: bool 
     new_columns = {}
     
     # Get signal strength using proper utilities - no fallback allowed
-    # Try to find the corresponding parameter file
-    params_file_path = _find_params_file(results_path)
-    signal_strength = get_signal_strength_from_results(df, method="from_params", params_file_path=params_file_path)
-    if isinstance(signal_strength, np.ndarray):
-        # If we have per-row signal strengths, use them
-        new_columns['signal_strength'] = signal_strength
-        new_columns['snr'] = [compute_snr(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
-        if need_variance:
-            new_columns['var_explained'] = [compute_variance_explained(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
-    else:
-        # Single signal strength value for all rows
-        new_columns['signal_strength'] = signal_strength
-        new_columns['snr'] = df['sigma'].apply(lambda sigma: compute_snr(signal_strength, sigma))
-        if need_variance:
-            new_columns['var_explained'] = df['sigma'].apply(lambda sigma: compute_variance_explained(signal_strength, sigma))
+    # Check each column individually and only add if missing
+    missing_columns = []
+    if 'signal_strength' not in df.columns:
+        missing_columns.append('signal_strength')
+    if 'snr' not in df.columns:
+        missing_columns.append('snr')
+    if need_variance and 'pve' not in df.columns:
+        missing_columns.append('pve')
+    
+    # Only compute signal strength if we need any of these columns
+    if missing_columns:
+        # Try to find the corresponding parameter file
+        params_file_path = _find_params_file(results_path)
+        signal_strength = get_signal_strength_from_results(df, method="from_params", params_file_path=params_file_path)
+        
+        if isinstance(signal_strength, np.ndarray):
+            # If we have per-row signal strengths, use them
+            if 'signal_strength' in missing_columns:
+                new_columns['signal_strength'] = signal_strength
+            if 'snr' in missing_columns:
+                new_columns['snr'] = [compute_snr(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
+            if 'pve' in missing_columns:
+                new_columns['pve'] = [compute_variance_explained(ss, sigma) for ss, sigma in zip(signal_strength, df['sigma'])]
+        else:
+            # Single signal strength value for all rows
+            if 'signal_strength' in missing_columns:
+                new_columns['signal_strength'] = signal_strength
+            if 'snr' in missing_columns:
+                new_columns['snr'] = df['sigma'].apply(lambda sigma: compute_snr(signal_strength, sigma))
+            if 'pve' in missing_columns:
+                new_columns['pve'] = df['sigma'].apply(lambda sigma: compute_variance_explained(signal_strength, sigma))
+    
+    # No need for alias anymore since we use 'pve' directly
     
     # Check if RIE columns exist, if not, construct them from insample error
     # RIE = (insample error)/sigma^2 + 1
@@ -343,7 +361,7 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
         
         for method in available_methods:
             metric_col = f'{metric}_{method}'
-            grouped = df.groupby('var_explained')[metric_col].agg(['mean', 'std'])
+            grouped = df.groupby('pve')[metric_col].agg(['mean', 'std'])
             
             ax.plot(grouped.index, grouped['mean'],
                    marker='o',
@@ -1001,9 +1019,10 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
         fig, ax = create_figure()
         setup_plot_style()
         
-        # Round var_explained for grouping
-        df['var_explained_rounded'] = np.round(df['var_explained'], 2)
-        var_explained_values = sorted(df['var_explained_rounded'].unique())
+        # Round pve for grouping - create a copy to avoid fragmentation warning
+        df = df.copy()
+        df['pve_rounded'] = np.round(df['pve'], 2)
+        pve_values = sorted(df['pve_rounded'].unique())
         
         n_methods = len(available_methods)
         bar_width = 0.8 / n_methods
@@ -1011,11 +1030,11 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
         for i, method in enumerate(available_methods):
             means, stds, positions = [], [], []
             
-            for j, var_expl in enumerate(var_explained_values):
-                var_data = df[np.isclose(df['var_explained_rounded'], var_expl)]
+            for j, pve_val in enumerate(pve_values):
+                pve_data = df[np.isclose(df['pve_rounded'], pve_val)]
                 metric_col = f'{metric}_{method}'
-                means.append(var_data[metric_col].mean())
-                stds.append(var_data[metric_col].std())
+                means.append(pve_data[metric_col].mean())
+                stds.append(pve_data[metric_col].std())
                 positions.append(j + (i - n_methods/2 + 0.5) * bar_width)
             
             ax.bar(positions, means, width=bar_width,
@@ -1043,8 +1062,8 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
             ax.grid(which='major', axis='y', linestyle='-', alpha=0.3)
             ax.grid(which='minor', axis='y', linestyle=':', alpha=0.2)
         
-        ax.set_xticks(range(len(var_explained_values)))
-        ax.set_xticklabels([f"{var:.2f}" for var in var_explained_values])
+        ax.set_xticks(range(len(pve_values)))
+        ax.set_xticklabels([f"{pve:.2f}" for pve in pve_values])
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
         # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
@@ -1059,11 +1078,11 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
             all_values = []
             for method in available_methods:
                 metric_col = f'{metric}_{method}'
-                for var_expl in var_explained_values:
-                    var_data = df[np.isclose(df['var_explained_rounded'], var_expl)]
-                    mean = var_data[metric_col].mean()
+                for pve_val in pve_values:
+                    pve_data = df[np.isclose(df['pve_rounded'], pve_val)]
+                    mean = pve_data[metric_col].mean()
                     if show_std:
-                        std = var_data[metric_col].std()
+                        std = pve_data[metric_col].std()
                         if not np.isnan(std):
                             all_values.extend([mean - std, mean + std])
                         else:
@@ -1197,8 +1216,8 @@ def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bo
                 # If showing std, also include bounds with error bars
                 if show_std:
                     # Group by appropriate x-axis and calculate std
-                    if 'var_explained' in df.columns:
-                        grouped = df.groupby('var_explained')[metric_col].agg(['mean', 'std'])
+                    if 'pve' in df.columns:
+                        grouped = df.groupby('pve')[metric_col].agg(['mean', 'std'])
                     else:
                         grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
                     
