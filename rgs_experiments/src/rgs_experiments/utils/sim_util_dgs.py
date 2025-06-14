@@ -128,7 +128,7 @@ def _create_fixed_design_matrix(target_covariance, n_train, n_predictors):
 
 
 
-def generate_banded_X(n_predictors, n_train, rho=0.65, seed=123, fixed_design=True):
+def generate_banded_X(n_predictors, n_train, rho=0.65, seed=123, fixed_design=False):
     """
     Generate a design matrix X with AR(1)-like correlation structure.
     
@@ -142,7 +142,7 @@ def generate_banded_X(n_predictors, n_train, rho=0.65, seed=123, fixed_design=Tr
         Correlation decay parameter for AR(1) structure
     seed : int, default=123
         Random seed for reproducibility
-    fixed_design : bool, default=True
+    fixed_design : bool, default=False
         If True: construct X such that X^T X / n = target_covariance (fixed design)
         If False: draw each row from N(0, target_covariance) (random design)
         
@@ -182,7 +182,7 @@ def generate_banded_X(n_predictors, n_train, rho=0.65, seed=123, fixed_design=Tr
     
     return X, gram_matrix
 
-def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123, fixed_design=True):
+def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, seed=123, fixed_design=False):
     """
     Generate a design matrix X with block correlation structure where variables 
     are grouped by modulo assignment to create evenly distributed blocks.
@@ -199,7 +199,7 @@ def generate_block_X(n_predictors, n_train, block_size, within_correlation=0.7, 
         Correlation between variables within the same block
     seed : int, default=123
         Random seed for reproducibility
-    fixed_design : bool, default=True
+    fixed_design : bool, default=False
         If True: construct X such that X^T X / n = target_covariance (fixed design)
         If False: draw each row from N(0, target_covariance) (random design)
         
