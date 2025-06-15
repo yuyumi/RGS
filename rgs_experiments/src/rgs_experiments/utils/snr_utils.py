@@ -275,6 +275,9 @@ def _construct_block_covariance_matrix(p: int, block_size: int, within_correlati
     The matrix has blocks of size `block_size` with `within_correlation` between variables 
     within the same block and 0 correlation between variables in different blocks.
     
+    Uses modulo assignment to match the data generation logic: variables with the same 
+    (i % num_blocks) are in the same block.
+    
     Parameters
     ----------
     p : int
@@ -291,18 +294,15 @@ def _construct_block_covariance_matrix(p: int, block_size: int, within_correlati
     """
     cov_matrix = np.eye(p)
     
-    # Create blocks with within-block correlations
-    n_blocks = (p + block_size - 1) // block_size  # Ceiling division
+    # Calculate number of blocks (must match data generation logic)
+    num_blocks = p // block_size
     
-    for block_idx in range(n_blocks):
-        start_idx = block_idx * block_size
-        end_idx = min((block_idx + 1) * block_size, p)
-        
-        # Set within-block correlations
-        for i in range(start_idx, end_idx):
-            for j in range(start_idx, end_idx):
-                if i != j:  # Off-diagonal elements within block
-                    cov_matrix[i, j] = within_correlation
+    # Fill with block structure - ones on diagonal and within_correlation for same block
+    # Use modulo assignment: variables with same (i % num_blocks) are in same block
+    for i in range(p):
+        for j in range(p):
+            if i != j and i % num_blocks == j % num_blocks:  # Same block (modulo grouping)
+                cov_matrix[i, j] = within_correlation
     
     return cov_matrix
 
