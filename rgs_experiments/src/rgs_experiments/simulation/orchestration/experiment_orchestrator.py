@@ -22,6 +22,9 @@ from rgs.mse import create_mse_scorer
 # Import SNR and PVE utilities
 from ...utils.snr_utils import compute_snr, compute_variance_explained
 
+# Import signal strength computation
+from ...utils.snr_utils import compute_expected_signal_strength
+
 
 class ExperimentOrchestrator:
     """
@@ -510,8 +513,19 @@ class ExperimentOrchestrator:
         # Add timing results to main results
         results.update(timing_results)
         
-        # Calculate signal strength using beta_true and covariance matrix
-        signal_strength = beta_true.T @ cov_matrix @ beta_true
+        # Calculate signal strength using the correct method for all generator types
+        generator_type = self.params['data']['generator_type']
+        signal_proportion = self.params['data']['signal_proportion']
+        eta = self.params['data'].get('generator_params', {}).get('eta', 0.5)
+        seed = self.params['simulation']['base_seed']
+        
+        signal_strength = compute_expected_signal_strength(
+            target_covariance=cov_matrix,
+            signal_proportion=signal_proportion,
+            generator_type=generator_type,
+            eta=eta,
+            seed=seed
+        )
         
         # Calculate SNR
         snr = compute_snr(signal_strength, sigma)

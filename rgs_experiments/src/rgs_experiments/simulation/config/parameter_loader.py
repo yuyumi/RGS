@@ -83,7 +83,7 @@ def get_sigma_list(sigma_params: Dict[str, Any],
     """
     if sigma_params['type'] == 'pve':
         # Import here to avoid circular imports
-        from rgs_experiments.utils.sim_util_dgs import compute_expected_signal_strength
+        from rgs_experiments.utils.snr_utils import compute_expected_signal_strength
         
         # Use theoretical signal strength β^T Σ β
         # This works for both fixed and random designs since sim_util_dgs provides the covariance matrix
