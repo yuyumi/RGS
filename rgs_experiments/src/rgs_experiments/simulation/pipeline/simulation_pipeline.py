@@ -32,6 +32,7 @@ def _run_single_simulation_worker(args):
         from rgs_experiments.simulation.data.data_generator import DataGenerator
         from rgs_experiments.simulation.orchestration.experiment_orchestrator import ExperimentOrchestrator
         from rgs_experiments.simulation.config.parameter_loader import get_sigma_list
+        from tqdm import tqdm
         
         # Initialize components for this process
         data_generator = DataGenerator(params)
@@ -56,17 +57,26 @@ def _run_single_simulation_worker(args):
             seed=base_seed
         )
         
-        # Run all sigma values with this same X
-        for sigma in sigmas:
-            result = experiment_orchestrator.run_single_experiment(
-                X=X_sim,
-                cov_matrix=cov_matrix,
-                sigma=sigma,
-                seed=base_seed,
-                sim_num=sim_num
-            )
-            sim_results.append(result)
+        # Verbose output for this simulation
+        print(f"[Sim {sim_num}] Running {len(sigmas)} sigma values")
         
+        # Run all sigma values with this same X with progress bar
+        with tqdm(total=len(sigmas), desc=f"Sim {sim_num}", position=sim_num, leave=False) as pbar:
+            for i, sigma in enumerate(sigmas, 1):
+                # Update progress bar with current sigma
+                pbar.set_description(f"Sim {sim_num} σ={sigma:.3f}")
+                
+                result = experiment_orchestrator.run_single_experiment(
+                    X=X_sim,
+                    cov_matrix=cov_matrix,
+                    sigma=sigma,
+                    seed=base_seed,
+                    sim_num=sim_num
+                )
+                sim_results.append(result)
+                pbar.update(1)
+        
+        print(f"[Sim {sim_num}] Completed all {len(sigmas)} sigma values")
         return sim_results
         
     except Exception as e:
@@ -233,23 +243,28 @@ class SimulationPipeline:
         # Get sigma values based on this X
         sigmas = self._get_sigma_values(X_sim, cov_matrix)
         
-        # Run all sigma values with this same X
-        for i, sigma in enumerate(sigmas, 1):
-            # Optional: print progress for this simulation
-            if len(sigmas) > 1:
-                print(f"     σ {i}/{len(sigmas)}: {sigma:.3f}")
-            
-            # Run single experiment with this simulation's X
-            result = self.experiment_orchestrator.run_single_experiment(
-                X=X_sim,
-                cov_matrix=cov_matrix,
-                sigma=sigma,
-                seed=base_seed,
-                sim_num=sim_num
-            )
-            
-            sim_results.append(result)
+        # Verbose output for this simulation
+        print(f"[Sim {sim_num}] Running {len(sigmas)} sigma values")
         
+        # Run all sigma values with this same X with progress bar
+        with tqdm(total=len(sigmas), desc=f"Sim {sim_num}", leave=False) as pbar:
+            for i, sigma in enumerate(sigmas, 1):
+                # Update progress bar with current sigma
+                pbar.set_description(f"Sim {sim_num} σ={sigma:.3f}")
+                
+                # Run single experiment with this simulation's X
+                result = self.experiment_orchestrator.run_single_experiment(
+                    X=X_sim,
+                    cov_matrix=cov_matrix,
+                    sigma=sigma,
+                    seed=base_seed,
+                    sim_num=sim_num
+                )
+                
+                sim_results.append(result)
+                pbar.update(1)
+        
+        print(f"[Sim {sim_num}] Completed all {len(sigmas)} sigma values")
         return sim_results
 
     def _run_simulations_parallel(self, n_workers: int = None) -> List[Dict[str, Any]]:
