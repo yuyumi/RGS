@@ -115,7 +115,7 @@ def create_plots_for_result(
                 # Call the function with the method filter and labels
                 plot_mse_vs_df_by_k(
                     results_path=results_path, 
-                    target_sigma=sigma, 
+                    target_snr=snr, 
                     save_path=save_path, 
                     show_std=show_std, 
                     method_filter=lambda m: m in ['rgs', 'original_gs', 'gs'],
@@ -131,10 +131,10 @@ def create_plots_for_result(
     # Define plot configurations based on plot_type
     if plot_type == 'line' or plot_type == 'both':
         plot_types = {
-            # 'mse_sigma': (plot_mse_by_sigma, {}),
-            # 'df_sigma': (plot_df_by_sigma, {}),
-            # 'insample_sigma': (plot_insample_by_sigma, {}),
-            # 'outsample_sigma': (plot_outsample_mse_by_sigma, {}),
+            # 'mse_snr': (plot_mse_by_snr, {}),
+            # 'df_snr': (plot_df_by_snr, {}),
+            # 'insample_snr': (plot_insample_by_snr, {}),
+            # 'outsample_snr': (plot_outsample_mse_by_snr, {}),
             'mse_pve': (plot_mse_by_variance_explained, {}),
             # 'insample_pve': (plot_insample_by_variance_explained, {}),
             'outsample_pve': (plot_outsample_mse_by_variance_explained, {}),
@@ -169,17 +169,17 @@ def create_plots_for_result(
     
     if plot_type == 'bar' or plot_type == 'both':
         plot_types = {
-            # 'mse_sigma': (barplot_mse_by_sigma, {'log_scale': True}),
-            # 'df_sigma': (barplot_df_by_sigma, {'log_scale': False}),
-            # 'insample_sigma': (barplot_insample_by_sigma, {'log_scale': True}),
-            # 'outsample_sigma': (barplot_outsample_mse_by_sigma, {'log_scale': True}),
+            # 'mse_snr': (barplot_mse_by_snr, {'log_scale': True}),
+            # 'df_snr': (barplot_df_by_snr, {'log_scale': False}),
+            # 'insample_snr': (barplot_insample_by_snr, {'log_scale': True}),
+            # 'outsample_snr': (barplot_outsample_mse_by_snr, {'log_scale': True}),
             'mse_pve': (barplot_mse_by_variance_explained, {'log_scale': True}),
             'insample_pve': (barplot_insample_by_variance_explained, {'log_scale': True}),
             'outsample_pve': (barplot_outsample_mse_by_variance_explained, {'log_scale': True}),
             'rie_pve': (barplot_rie_by_variance_explained, {}),
             'rte_pve': (barplot_rte_by_variance_explained, {'log_scale': False}),
-            'rie_sigma': (barplot_rie_by_sigma, {'log_scale': False}),
-            'rte_sigma': (barplot_rte_by_sigma, {'log_scale': False})
+            'rie_snr': (barplot_rie_by_snr, {'log_scale': False}),
+            'rte_snr': (barplot_rte_by_snr, {'log_scale': False})
         }
         
         # Generate basic plots

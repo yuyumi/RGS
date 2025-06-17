@@ -270,12 +270,27 @@ def _setup_axis_scaling(ax, log_scale: bool, all_means: List, all_upper_bounds: 
         if global_ylim:
             ax.set_ylim(bottom=global_ylim[0], top=global_ylim[1])
         elif all_means:
-            max_value = max(all_upper_bounds) if all_upper_bounds else max(all_means)
-            min_value = min(all_means)
-            data_range = max_value - min_value
-            padding = data_range * 0.05 if data_range > 0 else max_value * 0.05
-            y_min = max(0, min_value - padding) if min_value >= 0 else min_value - padding
-            y_max = max_value + padding
+            # Calculate precise limits based on means and error bars
+            if all_upper_bounds:
+                # We have error bars - find the full range needed
+                min_val = min(all_means)
+                max_val = max(max(all_means), max(all_upper_bounds))
+                
+                # Also need to account for lower error bounds
+                # Assuming symmetric error bars: lower = mean - (upper - mean)
+                all_lower_bounds = [2*mean - upper for mean, upper in zip(all_means, all_upper_bounds) if upper is not None]
+                if all_lower_bounds:
+                    min_val = min(min_val, min(all_lower_bounds))
+            else:
+                # No error bars - use just means
+                min_val = min(all_means)
+                max_val = max(all_means)
+            
+            # Minimal padding for visual appeal
+            data_range = max_val - min_val
+            padding = data_range * 0.02 if data_range > 0 else max_val * 0.02  # Reduced padding
+            y_min = max(0, min_val - padding) if min_val >= 0 else min_val - padding
+            y_max = max_val + padding
             ax.set_ylim(bottom=y_min, top=y_max)
         
         ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
@@ -284,10 +299,10 @@ def _setup_axis_scaling(ax, log_scale: bool, all_means: List, all_upper_bounds: 
         ax.grid(which='major', axis='y', linestyle='-', alpha=0.3)
         ax.grid(which='minor', axis='y', linestyle=':', alpha=0.2)
 
-def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
-                        show_std: bool = False, log_scale: bool = False, 
-                        global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
-    """Plot metric vs sigma with error bars."""
+def plot_metric_by_snr(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
+                       show_std: bool = False, log_scale: bool = False, 
+                       global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
+    """Plot metric vs SNR with error bars."""
     try:
         df = _load_and_prepare_data(results_path, metric)
         available_methods = get_available_methods(df, metric)
@@ -325,7 +340,7 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
         
         _setup_axis_scaling(ax, log_scale, all_means, all_upper_bounds if show_std else None, global_ylim)
         
-        ax.set_xlabel('Sigma (Noise Level)')
+        ax.set_xlabel('SNR (Signal-to-Noise Ratio)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
         # Original hardcoded positioning: ax.legend(loc='upper left')
         ax.legend(loc='best')
@@ -339,7 +354,7 @@ def plot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Opt
         return fig
         
     except Exception as e:
-        print(f"Error plotting metric by sigma: {str(e)}")
+        print(f"Error plotting metric by SNR: {str(e)}")
         plt.close()
         return None
 
@@ -387,7 +402,7 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
         
         ax.set_xlabel('Proportion of Variance Explained (PVE)')
         ax.set_ylabel(PlottingConfig.get_metric_label(metric))
-        # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rte', 'rie'] else 'upper left')
+        # Original hardcoded positioning: ax.legend(loc='upper right' if metric in ['mse', 'insample', 'outsample_mse', 'rie'] else 'upper left')
         ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
         
@@ -407,11 +422,11 @@ def plot_metric_by_variance_explained(results_path: Path, metric: str = 'mse', s
 
 
 
-def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Optional[Path] = None,
+def plot_mse_vs_df_by_k(results_path: Path, target_snr: float, save_path: Optional[Path] = None,
                        show_std: bool = False, log_scale_mse: bool = False, log_scale_df: bool = False,
-                       sigma_tolerance: float = 1e-6, method_filter: Optional[callable] = None,
+                       snr_tolerance: float = 1e-6, method_filter: Optional[callable] = None,
                        labels: Optional[Dict[str, List[int]]] = None) -> Optional[plt.Figure]:
-    """Plot MSE vs DF for each method's k progression at target sigma.
+    """Plot MSE vs DF for each method's k progression at target SNR.
     
     Args:
         labels: Optional dict mapping method names to lists of k values to label.
@@ -430,16 +445,16 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
         if 'method' in df.columns:
             df = df.drop('method', axis=1)
         
-        df = df[np.abs(df['sigma'] - target_sigma) < sigma_tolerance]
+        df = df[np.abs(df['snr'] - target_snr) < snr_tolerance]
         
         if df.empty:
-            print(f"No data found for σ = {target_sigma}")
+            print(f"No data found for SNR = {target_snr}")
             return None
         
         # Only select numeric columns for aggregation to avoid dtype errors
         numeric_columns = df.select_dtypes(include=[np.number]).columns
         df_numeric = df[numeric_columns]
-        df_avg = df_numeric.groupby('sigma').mean().reset_index()
+        df_avg = df_numeric.groupby('snr').mean().reset_index()
         available_methods = []
         
         # Explicitly filter to only original_gs/gs and rgs methods for MSE vs DF by k plots
@@ -901,10 +916,10 @@ def plot_mse_vs_df_by_k(results_path: Path, target_sigma: float, save_path: Opti
         plt.close()
         return None
 
-def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
-                           show_std: bool = True, log_scale: bool = False,
-                           global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
-    """Create bar plot of metric by sigma."""
+def barplot_metric_by_snr(results_path: Path, metric: str = 'mse', save_path: Optional[Path] = None,
+                          show_std: bool = True, log_scale: bool = False,
+                          global_ylim: Optional[Tuple[float, float]] = None) -> Optional[plt.Figure]:
+    """Create bar plot of metric by SNR."""
     try:
         df = _load_and_prepare_data(results_path, metric)
         available_methods = get_available_methods(df, metric)
@@ -970,27 +985,36 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
         if global_ylim:
             ax.set_ylim(bottom=global_ylim[0], top=global_ylim[1])
         else:
-            # Calculate appropriate y-limits from the data, including error bars if shown
-            all_values = []
+            # Calculate precise y-limits from means and error bars
+            all_means_for_limits = []
+            all_error_bar_lower = []
+            all_error_bar_upper = []
+            
             for method in sorted_methods:
                 metric_col = f'{metric}_{method}'
                 for snr in snr_values:
                     snr_data = df[df['snr'] == snr]
                     mean = snr_data[metric_col].mean()
+                    all_means_for_limits.append(mean)
+                    
                     if show_std:
                         std = snr_data[metric_col].std()
                         if not np.isnan(std):
-                            all_values.extend([mean - std, mean + std])
-                        else:
-                            all_values.append(mean)
-                    else:
-                        all_values.append(mean)
+                            all_error_bar_upper.append(mean + std)
+                            all_error_bar_lower.append(mean - std)
 
-            if all_values:
-                min_val = min(all_values)
-                max_val = max(all_values) 
+            if all_means_for_limits:
+                # Set limits to encompass both means and error bars
+                if show_std and all_error_bar_lower and all_error_bar_upper:
+                    min_val = min(min(all_means_for_limits), min(all_error_bar_lower))
+                    max_val = max(max(all_means_for_limits), max(all_error_bar_upper))
+                else:
+                    min_val = min(all_means_for_limits)
+                    max_val = max(all_means_for_limits)
+                
+                # Minimal padding for visual appeal
                 data_range = max_val - min_val
-                padding = data_range * 0.05
+                padding = data_range * 0.02  # Reduced padding
                 ax.set_ylim(bottom=min_val - padding, top=max_val + padding)
         
         if save_path:
@@ -1001,7 +1025,7 @@ def barplot_metric_by_sigma(results_path: Path, metric: str = 'mse', save_path: 
         return fig
         
     except Exception as e:
-        print(f"Error creating bar plot by sigma: {str(e)}")
+        print(f"Error creating bar plot by SNR: {str(e)}")
         plt.close()
         return None
 
@@ -1074,32 +1098,37 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
         if global_ylim:
             ax.set_ylim(bottom=global_ylim[0], top=global_ylim[1])
         elif not log_scale:
-            # Calculate appropriate y-limits for ALL metrics, including error bars if shown
-            all_values = []
+            # Calculate precise y-limits from means and error bars
+            all_means_for_limits = []
+            all_error_bar_lower = []
+            all_error_bar_upper = []
+            
             for method in available_methods:
                 metric_col = f'{metric}_{method}'
                 for pve_val in pve_values:
                     pve_data = df[np.isclose(df['pve_rounded'], pve_val)]
                     mean = pve_data[metric_col].mean()
+                    all_means_for_limits.append(mean)
+                    
                     if show_std:
                         std = pve_data[metric_col].std()
                         if not np.isnan(std):
-                            all_values.extend([mean - std, mean + std])
-                        else:
-                            all_values.append(mean)
-                    else:
-                        all_values.append(mean)
-            
-            # Set limits with 5% padding
-            if all_values:
-                y_min = min(all_values)
-                y_max = max(all_values)
+                            all_error_bar_upper.append(mean + std)
+                            all_error_bar_lower.append(mean - std)
+
+            if all_means_for_limits:
+                # Set limits to encompass both means and error bars
+                if show_std and all_error_bar_lower and all_error_bar_upper:
+                    min_val = min(min(all_means_for_limits), min(all_error_bar_lower))
+                    max_val = max(max(all_means_for_limits), max(all_error_bar_upper))
+                else:
+                    min_val = min(all_means_for_limits)
+                    max_val = max(all_means_for_limits)
                 
-                # Add padding (5% of range)
-                data_range = y_max - y_min
-                padding = data_range * 0.05
-                
-                ax.set_ylim(bottom=y_min - padding, top=y_max + padding)
+                # Minimal padding for visual appeal
+                data_range = max_val - min_val
+                padding = data_range * 0.02  # Reduced padding
+                ax.set_ylim(bottom=min_val - padding, top=max_val + padding)
         
         if save_path:
             pdf_path = _ensure_pdf_extension(save_path)
@@ -1114,21 +1143,21 @@ def barplot_metric_by_variance_explained(results_path: Path, metric: str = 'mse'
         return None
 
 # Convenience functions - maintain exact same API
-def plot_mse_by_sigma(*args, **kwargs):
+def plot_mse_by_snr(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
-    return plot_metric_by_sigma(*args, metric='mse', **kwargs)
+    return plot_metric_by_snr(*args, metric='mse', **kwargs)
 
-def plot_insample_by_sigma(*args, **kwargs):
+def plot_insample_by_snr(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
-    return plot_metric_by_sigma(*args, metric='insample', **kwargs)
+    return plot_metric_by_snr(*args, metric='insample', **kwargs)
 
-def plot_rie_by_sigma(*args, **kwargs):
+def plot_rie_by_snr(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
-    return plot_metric_by_sigma(*args, metric='rie', **kwargs)
+    return plot_metric_by_snr(*args, metric='rie', **kwargs)
 
-def plot_outsample_mse_by_sigma(*args, **kwargs):
+def plot_outsample_mse_by_snr(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
-    return plot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
+    return plot_metric_by_snr(*args, metric='outsample_mse', **kwargs)
 
 def plot_mse_by_variance_explained(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
@@ -1154,20 +1183,20 @@ def plot_rte_by_variance_explained(*args, **kwargs):
     kwargs.setdefault('log_scale', False)
     return plot_metric_by_variance_explained(*args, metric='rte', **kwargs)
 
-def barplot_mse_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='mse', **kwargs)
+def barplot_mse_by_snr(*args, **kwargs):
+    return barplot_metric_by_snr(*args, metric='mse', **kwargs)
 
-def barplot_insample_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='insample', **kwargs)
+def barplot_insample_by_snr(*args, **kwargs):
+    return barplot_metric_by_snr(*args, metric='insample', **kwargs)
 
-def barplot_rie_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='rie', **kwargs)
+def barplot_rie_by_snr(*args, **kwargs):
+    return barplot_metric_by_snr(*args, metric='rie', **kwargs)
 
-def barplot_rte_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='rte', **kwargs)
+def barplot_rte_by_snr(*args, **kwargs):
+    return barplot_metric_by_snr(*args, metric='rte', **kwargs)
 
-def barplot_outsample_mse_by_sigma(*args, **kwargs):
-    return barplot_metric_by_sigma(*args, metric='outsample_mse', **kwargs)
+def barplot_outsample_mse_by_snr(*args, **kwargs):
+    return barplot_metric_by_snr(*args, metric='outsample_mse', **kwargs)
 
 def barplot_mse_by_variance_explained(*args, **kwargs):
     return barplot_metric_by_variance_explained(*args, metric='mse', **kwargs)
@@ -1187,7 +1216,9 @@ def barplot_rte_by_variance_explained(*args, **kwargs):
 def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bool = True, 
                            log_scale: bool = False) -> Optional[Tuple[float, float]]:
     """Collect global y-limits across multiple result files for consistent scaling."""
-    all_values = []
+    all_means = []
+    all_error_bar_lower = []
+    all_error_bar_upper = []
     
     for results_path in results_files:
         try:
@@ -1209,54 +1240,73 @@ def collect_global_y_limits(results_files: List[Path], metric: str, show_std: bo
                 if metric_col not in df.columns or df[metric_col].isna().all():
                     continue
                     
-                # Get values and add to collection
-                values = df[metric_col].dropna()
-                all_values.extend(values.tolist())
+                # Group by appropriate x-axis and calculate mean/std
+                if 'pve' in df.columns:
+                    grouped = df.groupby('pve')[metric_col].agg(['mean', 'std'])
+                else:
+                    grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
                 
-                # If showing std, also include bounds with error bars
+                # Add means to our collection
+                all_means.extend(grouped['mean'].dropna().tolist())
+                
+                # If showing std, track error bar bounds separately
                 if show_std:
-                    # Group by appropriate x-axis and calculate std
-                    if 'pve' in df.columns:
-                        grouped = df.groupby('pve')[metric_col].agg(['mean', 'std'])
-                    else:
-                        grouped = df.groupby('sigma')[metric_col].agg(['mean', 'std'])
-                    
-                    # Add error bar bounds only if std is not NaN
                     valid_std = ~grouped['std'].isna()
                     if valid_std.any():
-                        upper_bounds = grouped['mean'] + grouped['std']
-                        lower_bounds = grouped['mean'] - grouped['std']
-                        all_values.extend(upper_bounds[valid_std].tolist())
-                        all_values.extend(lower_bounds[valid_std].tolist())
+                        means_with_valid_std = grouped['mean'][valid_std]
+                        stds_with_valid_std = grouped['std'][valid_std]
+                        
+                        # Calculate error bar bounds
+                        upper_bounds = means_with_valid_std + stds_with_valid_std
+                        lower_bounds = means_with_valid_std - stds_with_valid_std
+                        
+                        all_error_bar_upper.extend(upper_bounds.tolist())
+                        all_error_bar_lower.extend(lower_bounds.tolist())
                     
         except Exception as e:
             print(f"Warning: Could not process {results_path.name} for global scaling: {str(e)}")
             continue
     
-    if not all_values:
+    if not all_means:
         return None
         
     # Remove any nan or inf values
-    all_values = [v for v in all_values if np.isfinite(v)]
-    if not all_values:
+    all_means = [v for v in all_means if np.isfinite(v)]
+    if not all_means:
         return None
     
-    min_val = min(all_values)
-    max_val = max(all_values)
+    # Calculate limits based on means and error bars
+    if show_std and all_error_bar_lower and all_error_bar_upper:
+        # Clean error bar bounds
+        all_error_bar_lower = [v for v in all_error_bar_lower if np.isfinite(v)]
+        all_error_bar_upper = [v for v in all_error_bar_upper if np.isfinite(v)]
+        
+        # Set limits to encompass both means and error bars
+        if all_error_bar_lower and all_error_bar_upper:
+            min_val = min(min(all_means), min(all_error_bar_lower))
+            max_val = max(max(all_means), max(all_error_bar_upper))
+        else:
+            # Fallback to just means if error bars are invalid
+            min_val = min(all_means)
+            max_val = max(all_means)
+    else:
+        # No error bars or no valid error bars - use just means
+        min_val = min(all_means)
+        max_val = max(all_means)
     
-    # Add padding
+    # Add minimal padding for visual appeal (much smaller than before)
     if log_scale:
         # For log scale, use multiplicative padding
         log_min = np.log10(max(min_val, 1e-10))  # Avoid log(0)
         log_max = np.log10(max_val)
         log_range = log_max - log_min
-        padding = log_range * 0.05
+        padding = log_range * 0.02  # Reduced from 0.05 to 0.02
         y_min = 10 ** (log_min - padding)
         y_max = 10 ** (log_max + padding)
     else:
         # For linear scale, use additive padding
         data_range = max_val - min_val
-        padding = data_range * 0.05 if data_range > 0 else max_val * 0.05
+        padding = data_range * 0.02 if data_range > 0 else max_val * 0.02  # Reduced from 0.05 to 0.02
         y_min = max(0, min_val - padding) if min_val >= 0 else min_val - padding
         y_max = max_val + padding
     
