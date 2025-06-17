@@ -73,6 +73,10 @@
             }
         }
     },
+    "execution": {
+        "parallel": true,
+        "n_workers": null
+    },
     "output": {
         "save_path": "results/raw/"
     }
